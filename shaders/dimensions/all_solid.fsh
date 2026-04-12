@@ -35,7 +35,7 @@ in DATA {
 	vec4 lmtexcoord;
 	vec3 normalMat;
 
-	#if (defined POM && (defined WORLD && !defined ENTITIES && !defined HAND || defined COLORWHEEL)) || (!defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD)
+	#if (defined POM && (defined WORLD && !defined ENTITIES && !defined HAND || defined COLORWHEEL)) || (!defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD && !defined CUTOUT)
 		vec4 texcoordam; // .st for add, .pq for mul
 	#endif
 
@@ -56,6 +56,7 @@ const float maxcoord = 1.0-mincoord;
 const float MAX_OCCLUSION_DISTANCE = MAX_DIST;
 const float MIX_OCCLUSION_DISTANCE = MAX_DIST*0.9;
 const int   MAX_OCCLUSION_POINTS   = MAX_ITERATIONS;
+const float   MAX_OCCLUSION_POINTS_DIV = 1.0 / MAX_OCCLUSION_POINTS;
 
 uniform vec2 texelSize;
 uniform int framemod8;
@@ -147,11 +148,11 @@ float R2_dither(){
 
 #ifdef TAA
 	float blueNoise() {
-		return fract(texelFetch2D(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887 * frameCounter);
+		return fract(texelFetch(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887 * frameCounter);
 	} 
 #else
 	float blueNoise() {
-		return fract(texelFetch2D(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887);
+		return fract(texelFetch(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887);
 	}
 #endif
 
@@ -186,12 +187,13 @@ vec3 worldToView(vec3 worldPos) {
     pos = gbufferModelView * pos;
     return pos.xyz;
 }
-vec4 encode (vec3 n, vec2 lightmaps){
+
+vec2 encodeNormal(vec3 n){
 	n.xy = n.xy / dot(abs(n), vec3(1.0));
 	n.xy = n.z <= 0.0 ? (1.0 - abs(n.yx)) * sign(n.xy) : n.xy;
     vec2 encn = clamp(n.xy * 0.5 + 0.5,-1.0,1.0);
 	
-    return vec4(encn,vec2(lightmaps.x,lightmaps.y));
+    return encn;
 }
 
 //encoding by jodie
@@ -232,7 +234,7 @@ vec3 toClipSpace3_Voxy(vec3 viewSpacePosition) {
 }
 
 bool voxyOccludesEntityFragment(vec3 viewSpacePosition) {
-	float voxyDepth = texture2D(vxDepthTexOpaque, gl_FragCoord.xy * texelSize).r;
+	float voxyDepth = texture(vxDepthTexOpaque, gl_FragCoord.xy * texelSize).r;
 	if (voxyDepth <= 0.0 || voxyDepth >= 1.0) return false;
 
 	float entityDepth = toClipSpace3_Voxy(viewSpacePosition).z;
@@ -243,11 +245,11 @@ bool voxyOccludesEntityFragment(vec3 viewSpacePosition) {
 #if defined POM && (defined WORLD && !defined ENTITIES && !defined HAND || defined COLORWHEEL)
 	vec4 readNormal(in vec2 coord)
 	{
-		return texture2DGradARB(normals,fract(coord)*data_in.texcoordam.pq+data_in.texcoordam.st,dcdx,dcdy);
+		return textureGrad(normals,fract(coord)*data_in.texcoordam.pq+data_in.texcoordam.st,dcdx,dcdy);
 	}
 	vec4 readTexture(in vec2 coord)
 	{
-		return texture2DGradARB(gtexture,fract(coord)*data_in.texcoordam.pq+data_in.texcoordam.st,dcdx,dcdy);
+		return textureGrad(gtexture,fract(coord)*data_in.texcoordam.pq+data_in.texcoordam.st,dcdx,dcdy);
 	}
 #endif
 
@@ -281,8 +283,8 @@ float ld(float dist) {
 
 
 // vec4 readNoise(in vec2 coord){
-// 	// return texture2D(noisetex,coord*texcoordam.pq+texcoord);
-// 		return texture2DGradARB(noisetex,coord*texcoordam.pq + texcoordam.st,dcdx,dcdy);
+// 	// return texture(noisetex,coord*texcoordam.pq+texcoord);
+// 		return textureGradARB(noisetex,coord*texcoordam.pq + texcoordam.st,dcdx,dcdy);
 // }
 // float EndPortalEffect(
 // 	inout vec4 ALBEDO,
@@ -322,7 +324,7 @@ float bias(){
 		return 1.0 - texelSize.x * 2560.0;
 	#endif
 }
-vec4 texture2D_POMSwitch(
+vec4 texture_POMSwitch(
 	sampler2D sampler, 
 	vec2 lightmapCoord,
 	vec4 dcdxdcdy, 
@@ -331,11 +333,11 @@ vec4 texture2D_POMSwitch(
 ){
 	#if defined POM && (defined WORLD && !defined ENTITIES && !defined HAND || defined COLORWHEEL)
 	if(ifPOM){
-		return texture2DGradARB(sampler, lightmapCoord, dcdxdcdy.xy, dcdxdcdy.zw);
+		return textureGrad(sampler, lightmapCoord, dcdxdcdy.xy, dcdxdcdy.zw);
 	}else
 	#endif
 	{
-		return texture2D(sampler, lightmapCoord, LOD);
+		return texture(sampler, lightmapCoord, LOD);
 	}
 }
 
@@ -356,16 +358,27 @@ float getTrimEmission(vec3 Albedo) {
     return sqrt(hsv.z);
 }
 
+uniform float alphaTestRef;
+
 //////////////////////////////VOID MAIN//////////////////////////////
 //////////////////////////////VOID MAIN//////////////////////////////
 //////////////////////////////VOID MAIN//////////////////////////////
 //////////////////////////////VOID MAIN//////////////////////////////
 //////////////////////////////VOID MAIN//////////////////////////////
 
+layout(location = 0) out vec4 OutAlbedo;
+layout(location = 1) out vec4 OutSpecular;
+
 #if defined HAND || defined ENTITIES || defined BLOCKENTITIES
-	/* RENDERTARGETS:1,8,15,2 */
+	layout(location = 2) out vec4 OutTranslucents;
+	#ifdef VOXY
+		layout(location = 3) out vec4 OutTranslucents2;
+		/* RENDERTARGETS:1,8,2,7 */
+	#else
+		/* RENDERTARGETS:1,8,2 */
+	#endif
 #else
-	/* RENDERTARGETS:1,8,15 */
+	/* RENDERTARGETS:1,8 */
 #endif
 
 void main() {
@@ -381,7 +394,7 @@ void main() {
 		bool ifPOM = false;
 	#endif
 
-	#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD
+	#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD && !defined CUTOUT
 		bool ShaderGrass = data_in.blockID == -15;
 		if(ShaderGrass) ifPOM = false;
 	#else
@@ -449,42 +462,40 @@ void main() {
 		gl_FragDepth = gl_FragCoord.z;
 	#endif
 
-	#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD
+	#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD && !defined CUTOUT
 	 if (falloff > 0.0 && !ShaderGrass)
 	#else
 	 if (falloff > 0.0)
 	#endif
 	{
 		float depthmap = readNormal(data_in.texcoord.st).a;
-		float used_POM_DEPTH = 1.0;
-		float pomdepth = POM_DEPTH*falloff;
+		float pomdepth = POM_DEPTH * falloff;
 
  		if ( viewVector.z < 0.0 && depthmap < 0.9999 && depthmap > 0.00001) {	
 			float noise = BN;
 			#ifdef Adaptive_Step_length
-				vec3 interval = (viewVector.xyz / -viewVector.z / MAX_OCCLUSION_POINTS * pomdepth) * clamp(1.0-pow(depthmap,2),0.1,1.0);
-				used_POM_DEPTH = 1.0;
+				depthmap = clamp(1.0 - depthmap * depthmap, 0.1, 1.0);
+				vec3 interval = (viewVector.xyz / -viewVector.z * MAX_OCCLUSION_POINTS_DIV * pomdepth) * depthmap;
 			#else
-				vec3 interval = viewVector.xyz /-viewVector.z/MAX_OCCLUSION_POINTS*pomdepth;
+				vec3 interval = viewVector.xyz /-viewVector.z * MAX_OCCLUSION_POINTS_DIV * pomdepth;
 			#endif
 			vec3 coord = vec3(data_in.texcoord.st , 1.0);
 
-			coord += interval * noise * used_POM_DEPTH;
+			coord += interval * noise;
 
 			float sumVec = noise;
-			for (int loopCount = 0; (loopCount < MAX_OCCLUSION_POINTS) && (1.0 - pomdepth + pomdepth * readNormal(coord.st).a  ) < coord.p  && coord.p >= 0.0; ++loopCount) {
-				coord = coord + interval  * used_POM_DEPTH; 
-				sumVec += used_POM_DEPTH; 
-
-				#if defined POM_OFFSET_SHADOW_BIAS
-					// absolutely disgusting but works for now
-					if(loopCount > MAX_OCCLUSION_POINTS*0.01 * POM_DEPTH * 30.0) saveDepth = max(0.20,saveDepth);
-					if(loopCount > MAX_OCCLUSION_POINTS*0.02 * POM_DEPTH * 30.0) saveDepth = max(0.25,saveDepth);
-					if(loopCount > MAX_OCCLUSION_POINTS*0.03 * POM_DEPTH * 30.0) saveDepth = max(0.30,saveDepth);
-					if(loopCount > MAX_OCCLUSION_POINTS*0.05 * POM_DEPTH * 30.0) saveDepth = max(0.35,saveDepth);
-					if(loopCount > MAX_OCCLUSION_POINTS*0.06 * POM_DEPTH * 30.0) saveDepth = max(0.40,saveDepth);
-				#endif
+			for (int loopCount = 0; (loopCount < MAX_OCCLUSION_POINTS) && (1.0 - pomdepth + pomdepth * readNormal(coord.st).a) < coord.p && coord.p >= 0.0; ++loopCount) {
+				coord = coord + interval; 
+				sumVec += 1.0; 
 			}
+
+			#if defined POM_OFFSET_SHADOW_BIAS
+				#ifdef Adaptive_Step_length
+					saveDepth += clamp(MAX_OCCLUSION_POINTS_DIV * depthmap-0.0001, 0.0, 1.0);
+				#else
+					saveDepth += clamp(MAX_OCCLUSION_POINTS_DIV-0.0001, 0.0, 1.0);
+				#endif
+			#endif
 	
 			if (coord.t < mincoord) {
 				if (readTexture(vec2(coord.s,mincoord)).a == 0.0) {
@@ -506,25 +517,19 @@ void main() {
 
 	float opaqueMasks = 1.0;
 
-	#ifndef HAND
-		#ifdef WORLD
+	#ifdef HAND
+		opaqueMasks = 0.75;
+	#else
+		#if defined WORLD && !defined ENTITIES
 			if(data_in.blockID == BLOCK_GROUND_WAVING_VERTICAL || data_in.blockID == BLOCK_GRASS_SHORT || data_in.blockID == BLOCK_GRASS_TALL_LOWER || data_in.blockID == BLOCK_GRASS_TALL_UPPER ) opaqueMasks = 0.60;
 			else if(data_in.blockID == BLOCK_AIR_WAVING) opaqueMasks = 0.55;
 		#endif
 
 		#if defined ENTITIES
-			// try and single out nametag text and then discard nametag background
-			// if( dot(gl_Color.rgb, vec3(1.0/3.0)) < 1.0) vNameTags = 1;
-			// if(gl_Color.a < 1.0) vNameTags = 1;
-			// if(gl_Color.a >= 0.24 && gl_Color.a <= 0.25 ) gl_Position = vec4(10,10,10,1);
-			#ifdef INCLUDE_UNLISTED_ENTITIES
-				opaqueMasks = 0.45;
-			#else
-				if(data_in.blockID == ENTITY_SSS_NONE || data_in.blockID == ENTITY_BOAT || data_in.blockID == ENTITY_SMALLSHIPS || data_in.blockID == ENTITY_SSS_MEDIUM || data_in.blockID == ENTITY_SSS_WEAK || data_in.blockID == ENTITY_PLAYER || data_in.blockID == ENTITY_CURRENT_PLAYER) opaqueMasks = 0.45;
-			#endif
+			opaqueMasks = 0.45;
 		#endif
 
-		#if !defined BLOCKENTITIES && !defined ENTITIES && defined SHADER_GRASS && !defined COLORWHEEL
+		#if !defined BLOCKENTITIES && !defined ENTITIES && defined SHADER_GRASS && !defined COLORWHEEL && !defined HAND && !defined CUTOUT
 			if(ShaderGrass) opaqueMasks = 0.8;
 		#endif
 	#endif
@@ -538,8 +543,9 @@ void main() {
 
 	vec2 lmcoord = data_in.lmtexcoord.zw;
 
+	vec4 Color = data_in.color;
+
 	#ifndef COLORWHEEL
-		vec4 Color = data_in.color;
 		float vanillaAO = 1.0 - clamp(Color.a,0,1);
 
 		// don't fix vanilla ao on some custom block models.
@@ -547,18 +553,19 @@ void main() {
 
 		vec4 Albedo = vec4(Color.rgb, 1.0);
 		
-		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && defined WORLD
+		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && defined WORLD && !defined CUTOUT
 		if (!ShaderGrass)
 		#endif
 		{
 		#ifdef IRIS_FEATURE_TEXTURE_FILTERING
-		 Albedo *= textureFilteringMode == 1 ? sampleRGSS(gtexture, adjustedTexCoord.xy, 1.0 / vec2(textureSize(gtexture, 0))) : sampleNearest(gtexture, adjustedTexCoord.xy, 1.0 / vec2(textureSize(gtexture, 0)));
+		vec2 texSize = 1.0 / vec2(textureSize(gtexture, 0));
+		 Albedo *= textureFilteringMode == 1 ? sampleRGSS(gtexture, adjustedTexCoord.xy, texSize) : sampleNearest(gtexture, adjustedTexCoord.xy, texSize);
 		#else
-		 Albedo *= texture2D_POMSwitch(gtexture, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM, textureLOD);
+		 Albedo *= texture_POMSwitch(gtexture, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM, textureLOD);
 		#endif
 		}
 	#else
-		vec4 Albedo = texture2D_POMSwitch(gtexture, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM, textureLOD);
+		vec4 Albedo = texture_POMSwitch(gtexture, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM, textureLOD);
 		vec4 overlayColor;
 		float vanillaAO;
 
@@ -571,7 +578,7 @@ void main() {
 		vec3 flatNormals = viewToWorld(normal);
 	#endif
 
-	#if REPLACE_SHORT_GRASS < 2 && !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD
+	#if REPLACE_SHORT_GRASS < 2 && !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD && !defined CUTOUT
 		// darken the top of grass blocks a bit
 		if(data_in.blockID == 85 && flatNormals.y > 0.9 && !ShaderGrass) Albedo.rgb *= smoothstep(-30.0, 25.0, length(playerpos));
 	#endif
@@ -583,17 +590,7 @@ void main() {
 			if(step(ditherFade, R2) == 0.0) discard;
 	#endif
 	
-	#if defined WORLD && !defined ENTITIES && !defined BLOCKENTITIES && !defined HAND
-		#if MC_VERSION >= 12111
-			if (Albedo.a < 0.5) discard;
-		#else
-			if (Albedo.a < 0.1) discard;
-		#endif
-	#endif
-
-	#if defined ENTITIES || defined BLOCKENTITIES || defined HAND
-		if (Albedo.a < 0.1) discard;
-	#endif
+	if(Albedo.a < alphaTestRef) discard;
 	
 	#if defined IRIS_FEATURE_FADE_VARIABLE && VANILLA_CHUNK_FADING > 0 && !defined HAND
 		#ifdef TAA
@@ -604,7 +601,7 @@ void main() {
 	#endif
 
 	#if (defined BLOCKENTITIES || defined ENTITIES || defined HAND) && !defined TRANSLUCENT_ENTITIES && defined TRANSLUCENT_ENTITIES_DITHER_FALLBACK
-		float entityAlbedo = clamp((Albedo.a - 0.1) * 10.0 / 9.0, 0.0, 1.0);
+		float entityAlbedo = clamp((Albedo.a*Color.a - 0.1) * 10.0 / 9.0, 0.0, 1.0);
 		#ifdef TAA
 			if(entityAlbedo < BN) discard;
 		#else
@@ -641,12 +638,12 @@ void main() {
 		#endif
 	#endif
 	
-	#if defined WORLD && !defined ENTITIES && !defined HAND && defined BLOCKENTITIES && !defined COLORWHEEL
+	#if defined WORLD && !defined ENTITIES && !defined HAND && defined BLOCKENTITIES && !defined COLORWHEEL && !defined CUTOUT
 		bool PORTAL = data_in.blockID == BLOCK_END_PORTAL || data_in.blockID == 187;
 
 		float endPortalEmission = 0.0;
 		if(PORTAL) {
-			const float steps = 20;
+			const float steps = 20.0;
 
 			vec3 color = vec3(0.0);
 			float absorbance = 1.0;
@@ -682,7 +679,7 @@ void main() {
 				float verticalGradient = (i + BN)/steps ;
 				float verticalGradient2 = exp(-7*(1-verticalGradient*verticalGradient));
 			
-				float density = max(max(verticalGradient - texture2D(noisetex, uv/256.0 + animation.xy).b*0.5,0.0) - (1.0-texture2D(noisetex, uv/32.0 + animation.xx).r) * (0.4 + 0.1 * (texture2D(noisetex, uv/10.0 - animation.yy).b)),0.0);
+				float density = max(max(verticalGradient - texture(noisetex, uv/256.0 + animation.xy).b*0.5,0.0) - (1.0-texture(noisetex, uv/32.0 + animation.xx).r) * (0.4 + 0.1 * (texture(noisetex, uv/10.0 - animation.yy).b)),0.0);
 			
 				float volumeCoeff = exp(-density*(i+1));
 				
@@ -709,8 +706,8 @@ void main() {
 		float gray = dot(Albedo.rgb, vec3(0.2, 1.0, 0.07));
 		if (
 			data_in.blockID == BLOCK_AMETHYST_BUD_MEDIUM || data_in.blockID == BLOCK_AMETHYST_BUD_LARGE || data_in.blockID == BLOCK_AMETHYST_CLUSTER 
-			|| data_in.blockID == BLOCK_SSS_STRONG || data_in.blockID == BLOCK_SSS_WEAK
-			|| data_in.blockID == BLOCK_GLOW_LICHEN || data_in.blockID == BLOCK_SNOW_LAYERS
+			|| data_in.blockID == BLOCK_SSS_STRONG || data_in.blockID == BLOCK_SSS_STRONG3 || data_in.blockID == BLOCK_SSS_WEAK || data_in.blockID == BLOCK_CACTUS
+			|| data_in.blockID == BLOCK_CELESTIUM || data_in.blockID == BLOCK_SNOW_LAYERS
 			|| data_in.blockID >= 10 && data_in.blockID < 80
 		) {
 			// IR Reflective (Pink-red)
@@ -735,24 +732,19 @@ void main() {
 	#endif
 
 	#ifdef WORLD
-		if (Albedo.a > 0.1) Albedo.a = opaqueMasks;
-		else Albedo.a = 0.0;
+		Albedo.a = opaqueMasks;
 
 		#if defined POM_OFFSET_SHADOW_BIAS && defined POM && (!defined ENTITIES && !defined HAND || defined COLORWHEEL)
-			if(saveDepth > 0) Albedo.a = saveDepth;
+			if(saveDepth > 0) Albedo.a = clamp(sqrt(saveDepth)*0.44, 0.0, 0.44);
 		#endif
 	#endif
 
-	#ifdef HAND
-		if (Albedo.a > 0.1){
-			Albedo.a = 0.75;
-			gl_FragData[3] = vec4(0.0);
-		} else {
-			Albedo.a = 1.0;
-		}
-	#endif
-	#if defined PARTICLE_RENDERING_FIX && (defined ENTITIES || defined BLOCKENTITIES)
-		gl_FragData[3] = vec4(0.0);
+	#if defined ENTITIES || defined BLOCKENTITIES || defined HAND
+		OutTranslucents = vec4(0.0);
+
+		#ifdef VOXY
+			OutTranslucents2 = vec4(0.0);
+		#endif
 	#endif
 
 	// #ifdef COLORWHEEL
@@ -765,17 +757,17 @@ void main() {
 	//////////////////////////////// 				//////////////////////////////// 
 
 	#if defined WORLD && defined MC_NORMAL_MAP
-		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD
+		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD && !defined CUTOUT
 		if(!ShaderGrass)
 		#endif
 		{
-			vec4 NormalTex = texture2D_POMSwitch(normals, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM,textureLOD).xyzw;
+			vec4 NormalTex = texture_POMSwitch(normals, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM,textureLOD).xyzw;
 			
-			#ifdef MATERIAL_AO
+			#if defined MATERIAL_AO && defined MC_TEXTURE_FORMAT_LAB_PBR
 				Albedo.rgb *= NormalTex.b*0.5+0.5;
 			#endif
 
-			float Heightmap = 1.0 - NormalTex.w;
+			// float Heightmap = 1.0 - NormalTex.w;
 
 			NormalTex.xy = NormalTex.xy * 2.0-1.0;
 			NormalTex.z = sqrt(max(1.0 - dot(NormalTex.xy, NormalTex.xy), 0.0));
@@ -789,54 +781,54 @@ void main() {
 	//////////////////////////////// 				//////////////////////////////// 
 	
 	#ifdef WORLD
+		normal = viewToWorld(normal);
 
-		#if SSS_TYPE == 1 || SSS_TYPE == 2
-			float SSSAMOUNT = 0.0;
-
-			if (ShaderGrass) SSSAMOUNT = 0.65;
-
-			/////// ----- SSS ON BLOCKS ----- ///////
-			// strong
-			else if (
-				data_in.blockID == BLOCK_SSS_STRONG || data_in.blockID == BLOCK_AIR_WAVING
-			) {
-				SSSAMOUNT = 1.0;
-			}
-			// medium
-			else if (
-				data_in.blockID == BLOCK_GROUND_WAVING || data_in.blockID == BLOCK_GROUND_WAVING_VERTICAL
-				|| data_in.blockID == BLOCK_GRASS_SHORT || data_in.blockID == BLOCK_GRASS_TALL_UPPER || data_in.blockID == BLOCK_GRASS_TALL_LOWER
-			) {
-				SSSAMOUNT = 0.5;
-			} else
-			if (
-				data_in.blockID == BLOCK_SSS_WEAK || data_in.blockID == BLOCK_SSS_WEAK_2 ||
-				data_in.blockID == BLOCK_GLOW_LICHEN || data_in.blockID == BLOCK_SNOW_LAYERS || data_in.blockID == BLOCK_CARPET ||
-				data_in.blockID == BLOCK_AMETHYST_BUD_MEDIUM || data_in.blockID == BLOCK_AMETHYST_BUD_LARGE || data_in.blockID == BLOCK_AMETHYST_CLUSTER ||
-				data_in.blockID == BLOCK_BAMBOO || data_in.blockID == BLOCK_SAPLING || data_in.blockID == BLOCK_VINE || data_in.blockID == BLOCK_VINE_OTHER
-			) {
-				SSSAMOUNT = 0.5;
-			}
-			
-			// low
-			#ifdef MISC_BLOCK_SSS
-				else if(
-					data_in.blockID == BLOCK_SSS_WEIRD || data_in.blockID == BLOCK_GRASS
-				){
-					SSSAMOUNT = 0.5;
-				}
-			#endif
-
+		float SSSAMOUNT = 0.0;
+		#if (SSS_TYPE == 1 || SSS_TYPE == 2) && !defined HAND
 			#ifdef ENTITIES
 				#ifdef MOB_SSS
-				/////// ----- SSS ON MOBS----- ///////
+					/////// ----- SSS ON MOBS----- ///////
+					// strong
+					if(data_in.blockID == ENTITY_SSS_MEDIUM) SSSAMOUNT = 0.75;
+			
+					// medium
+			
+					// low
+					else if(data_in.blockID == ENTITY_SSS_WEAK || data_in.blockID == ENTITY_PLAYER || data_in.blockID == ENTITY_CURRENT_PLAYER) SSSAMOUNT = 0.4;
+				#endif
+			#else
+				#if defined SHADER_GRASS && !defined CUTOUT
+					if (ShaderGrass) SSSAMOUNT = 0.65;
+					else
+				#endif
+
+				/////// ----- SSS ON BLOCKS ----- ///////
 				// strong
-				else if(data_in.blockID == ENTITY_SSS_MEDIUM) SSSAMOUNT = 0.75;
-		
+				if (
+					data_in.blockID == BLOCK_SSS_STRONG || data_in.blockID == BLOCK_SSS_STRONG3 || data_in.blockID == BLOCK_AIR_WAVING || data_in.blockID == BLOCK_SSS_STRONG_2
+				) {
+					SSSAMOUNT = 1.0;
+				}
 				// medium
-		
-				// low
-				else if(data_in.blockID == ENTITY_SSS_WEAK || data_in.blockID == ENTITY_PLAYER || data_in.blockID == ENTITY_CURRENT_PLAYER) SSSAMOUNT = 0.4;
+				else if (
+					data_in.blockID == BLOCK_GROUND_WAVING || data_in.blockID == BLOCK_GROUND_WAVING_VERTICAL ||
+					data_in.blockID == BLOCK_GRASS_SHORT || data_in.blockID == BLOCK_GRASS_TALL_UPPER || data_in.blockID == BLOCK_GRASS_TALL_LOWER ||
+					data_in.blockID == BLOCK_SSS_WEAK || data_in.blockID == BLOCK_CACTUS || data_in.blockID == BLOCK_SSS_WEAK_2 ||
+					data_in.blockID == BLOCK_CELESTIUM || (data_in.blockID >= 269 && data_in.blockID <= 274) || data_in.blockID == BLOCK_SNOW_LAYERS || data_in.blockID == BLOCK_CARPET ||
+					data_in.blockID == BLOCK_AMETHYST_BUD_MEDIUM || data_in.blockID == BLOCK_AMETHYST_BUD_LARGE || data_in.blockID == BLOCK_AMETHYST_CLUSTER ||
+					data_in.blockID == BLOCK_BAMBOO || data_in.blockID == BLOCK_SAPLING || data_in.blockID == BLOCK_VINE || data_in.blockID == BLOCK_VINE_OTHER
+					#ifdef MISC_BLOCK_SSS
+					|| data_in.blockID == BLOCK_SSS_WEIRD || data_in.blockID == BLOCK_GRASS
+					#endif
+				) {
+					SSSAMOUNT = 0.5;
+				} else if(data_in.blockID == GRASS_BLOCK_SNOWY) {
+					SSSAMOUNT = 0.5 * smoothstep(0.0, 1.0, fract(worldpos.y));
+				}
+				#if defined CUTOUT
+					else if (data_in.blockID == -BLOCK_GRASS) {
+						SSSAMOUNT = 0.3;
+					}
 				#endif
 			#endif
 
@@ -845,7 +837,7 @@ void main() {
 				// strong
 
 				// medium
-				else if(data_in.blockID == BLOCK_SSS_WEAK_3) SSSAMOUNT = 0.4;
+				if(data_in.blockID == BLOCK_SSS_WEAK_3) SSSAMOUNT = 0.4;
 
 				// low
 
@@ -864,26 +856,28 @@ void main() {
 			// if(vNameTags > 0) EMISSIVE = 0.9;
 
 			// normal block lightsources
-			if(data_in.blockID >= 100 && data_in.blockID < 300) EMISSIVE = 0.5;
+			if(data_in.blockID >= 100 && data_in.blockID < 282) {
+				EMISSIVE = 0.5;
 
-			else if(data_in.blockID == 266 || data_in.blockID == 497) EMISSIVE = 0.2; // sculk stuff
+				if(data_in.blockID == 266 || (data_in.blockID >= 276 && data_in.blockID <= 281)) EMISSIVE = 0.2; // sculk stuff
 
-			else if(data_in.blockID == 195) EMISSIVE = 2.3; // glow lichen
+				else if(data_in.blockID == 195) EMISSIVE = 2.3; // glow lichen
 
-			else if(data_in.blockID == 185) EMISSIVE = 1.5; // crying obsidian
+				else if(data_in.blockID == 185) EMISSIVE = 1.5; // crying obsidian
 
-			else if(data_in.blockID == 105) EMISSIVE = 2.0; // brewing stand
-			
-			else if(data_in.blockID == 236) EMISSIVE = 1.0; // respawn anchor
+				else if(data_in.blockID == 105) EMISSIVE = 2.0; // brewing stand
+				
+				else if(data_in.blockID == 236) EMISSIVE = 1.0; // respawn anchor
 
-			else if(data_in.blockID == 101) EMISSIVE = 0.7; // large amethyst bud
+				else if(data_in.blockID == 101) EMISSIVE = 0.7; // large amethyst bud
 
-			else if(data_in.blockID == 103) EMISSIVE = 1.0; // amethyst cluster
+				else if(data_in.blockID == 103) EMISSIVE = 1.0; // amethyst cluster
 
-			else if(data_in.blockID == 244) EMISSIVE = 1.5; // soul fire
+				else if(data_in.blockID == 244) EMISSIVE = 1.5; // soul fire
+			}
 
 			#if EMISSIVE_ORES > 0
-				else if(data_in.blockID == 502) {
+				if(data_in.blockID == 502) {
 					EMISSIVE = EMISSIVE_ORES_STRENGTH;
 
 					#ifndef HARDCODED_EMISSIVES_APPROX
@@ -901,20 +895,20 @@ void main() {
 
 
 		vec4 SpecularTex = vec4(0.0);
-		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD
+		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD && !defined CUTOUT
 		if (ShaderGrass) {
 			SpecularTex = vec4(0.15, 0.025, 1.0, 0.0);
 		} else
 		#endif
 		{
-			SpecularTex = texture2D_POMSwitch(specular, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM,textureLOD);
+			SpecularTex = texture_POMSwitch(specular, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM,textureLOD);
 		}
 
 		// SpecularTex.r = max(SpecularTex.r, rainfall);
 		// SpecularTex.g = max(SpecularTex.g, max(Puddle_shape*0.02,0.02));
 
-		gl_FragData[1] = vec4(0.0,0.0,0.0,0.0);
-		gl_FragData[1].rg = SpecularTex.rg;
+		OutSpecular = vec4(0.0,0.0,0.0,0.0);
+		OutSpecular.rg = SpecularTex.rg;
 
 		#if EMISSIVE_ORES > 1 && EMISSIVE_TYPE > 1
 			if(data_in.blockID == 502) {
@@ -934,6 +928,14 @@ void main() {
 		bool emissionCheck = SpecularTex.a <= 0.0;
 		#endif
 
+		#ifdef MIRROR_IRON
+		if(data_in.blockID == 504 || currentRenderedItemId == 504) {
+			OutSpecular.rg = vec2(1.0, 1.0);
+			Albedo.rgb = vec3(1.0);
+			// normal = flatNormals;
+		}
+		#endif
+
 		#if defined HARDCODED_EMISSIVES_APPROX && (EMISSIVE_TYPE == 1 || EMISSIVE_TYPE == 2)
 			#if EMISSIVE_TYPE == 2 && EMISSIVE_TRIMS > 0
 			if(emissionCheck && !isTrim)
@@ -948,43 +950,43 @@ void main() {
 		#endif
 
 		#if EMISSIVE_TYPE == 0
-			gl_FragData[1].a = 0.0;
+			OutSpecular.a = 0.0;
 		#endif
 
 		#if EMISSIVE_TYPE == 1
 			EMISSIVE = clamp(EMISSIVE, 0.0, 0.99);
-			gl_FragData[1].a = EMISSIVE;
+			OutSpecular.a = EMISSIVE;
 		#endif
 
 		#if EMISSIVE_TYPE == 2
-			gl_FragData[1].a = SpecularTex.a;
+			OutSpecular.a = SpecularTex.a;
 			EMISSIVE = clamp(EMISSIVE, 0.0, 0.99);
-			if(emissionCheck) gl_FragData[1].a = EMISSIVE;
+			if(emissionCheck) OutSpecular.a = EMISSIVE;
 		#endif
 
 		#if EMISSIVE_TYPE == 3		
-			gl_FragData[1].a = SpecularTex.a;
+			OutSpecular.a = SpecularTex.a;
 		#endif
 		
 		#if defined WORLD && !defined ENTITIES && !defined HAND && defined BLOCKENTITIES && !defined COLORWHEEL
-			if(PORTAL) gl_FragData[1].a = endPortalEmission;
+			if(PORTAL) OutSpecular.a = endPortalEmission;
 		#endif
 
 		#if SSS_TYPE == 0
-			gl_FragData[1].b = 0.0;
+			OutSpecular.b = 0.0;
 		#endif
 
 		#if SSS_TYPE == 1
-			gl_FragData[1].b = SSSAMOUNT;
+			OutSpecular.b = SSSAMOUNT;
 		#endif
 
 		#if SSS_TYPE == 2
-			gl_FragData[1].b = SpecularTex.b;
-			if(SpecularTex.b < 65.0/255.0) gl_FragData[1].b = SSSAMOUNT;
+			OutSpecular.b = SpecularTex.b;
+			if(SpecularTex.b < 65.0/255.0) OutSpecular.b = SSSAMOUNT;
 		#endif
 
 		#if SSS_TYPE == 3		
-			gl_FragData[1].b = SpecularTex.b;
+			OutSpecular.b = SpecularTex.b;
 		#endif
 	#endif
 
@@ -1010,20 +1012,29 @@ void main() {
 		
 		#if defined WORLD && !defined HAND && !defined ENTITIES
 			// some dither to lightmaps to reduce banding.
-			PackLightmaps = clamp( PackLightmaps + PackLightmaps * (interleaved_gradientNoise()-0.5)*0.005,0,1);
+			PackLightmaps = clamp( PackLightmaps + PackLightmaps * (BN-0.5)*0.005,0,1);
 		#endif
 
-		normal = viewToWorld(normal);
-
-		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD
+		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD && !defined CUTOUT
 			if (ShaderGrass) {flatNormals = data_in.normalMat; normal = data_in.texcoordam.xyz;}
 		#endif
 
-		vec4 data1 = clamp( encode(normal, PackLightmaps), 0.0, 1.0);
+		vec4 data1 = clamp(vec4(encodeNormal(normal), PackLightmaps), 0.0, 1.0);
 
-		gl_FragData[0] = vec4(encodeVec2(Albedo.x,data1.x),	encodeVec2(Albedo.y,data1.y),	encodeVec2(Albedo.z,data1.z),	encodeVec2(data1.w,Albedo.w));
+		Albedo = clamp(Albedo, 0.0, 1.0);
 
-		gl_FragData[2] = vec4(flatNormals * 0.5 + 0.5, vanillaAO);
+		OutAlbedo = vec4(encodeVec2(Albedo.x,data1.x),	encodeVec2(Albedo.y,data1.y),	encodeVec2(Albedo.z,data1.z),	encodeVec2(data1.w,Albedo.w));
+
+		vec4 otherData = clamp(vec4(flatNormals * 0.5 + 0.5, vanillaAO), 0.0, 1.0);
+		OutSpecular = clamp(OutSpecular, 0.0, 1.0);
+
+		OutSpecular = vec4(
+			encodeVec2(OutSpecular.x, otherData.x),
+			encodeVec2(OutSpecular.y, otherData.y),
+			encodeVec2(OutSpecular.z, otherData.z),
+			encodeVec2(OutSpecular.w, otherData.w)
+		);
+
 	#endif
 	
 }
