@@ -1,6 +1,6 @@
 #version 430 compatibility
 
-#define END_SHADER
+#define OVERWORLD_SHADER
 
 #define WORLD
 

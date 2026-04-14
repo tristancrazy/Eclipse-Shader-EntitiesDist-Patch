@@ -3,18 +3,20 @@
 
 #include "/lib/SSBOs.glsl"
 
+#ifdef END_SHADER
+	flat varying float Flashing;
+#endif
+
 #include "/lib/scene_controller.glsl"
 
-out DATA {
-	flat vec2 TAA_Offset;
+flat varying vec3 WsunVec;
+flat varying vec3 WmoonVec;
+flat varying vec3 unsigned_WsunVec;
 
-	#if !defined END_ISLAND_LIGHT || !defined END_SHADER
-		flat vec3 WsunVec;
-	#endif
-	flat vec3 unsigned_WsunVec;
-	flat vec3 WmoonVec;
-};
+flat varying float exposure;
 
+flat varying vec2 TAA_Offset;
+flat varying vec3 zMults;
 uniform sampler2D colortex4;
 
 // uniform float far;
@@ -40,6 +42,12 @@ uniform int framemod8;
 void main() {
 	gl_Position = ftransform();
 
+	#ifdef END_SHADER
+		Flashing = texelFetch2D(colortex4,ivec2(1,1),0).x/150.0;
+	#endif
+
+	zMults = vec3(1.0/(far * near),far+near,far-near);
+
 	#ifdef SMOOTH_SUN_ROTATION
 		unsigned_WsunVec = WsunVecSmooth;
 	#else
@@ -59,9 +67,7 @@ void main() {
 	
 	WmoonVec = moonVec;
 
-	#if !defined END_ISLAND_LIGHT || !defined END_SHADER
-		WsunVec = mix(WmoonVec, unsigned_WsunVec, clamp(float(sunElevation > 1e-5)*2.0 - 1.0,0,1));
-	#endif
+	WsunVec = mix(WmoonVec, unsigned_WsunVec, clamp(float(sunElevation > 1e-5)*2.0 - 1.0,0,1));
 
 	#if defined CUSTOM_MOON_ROTATION && LIGHTNING_SHADOWS > 0
 		WmoonVec = customMoonVec2SSBO;

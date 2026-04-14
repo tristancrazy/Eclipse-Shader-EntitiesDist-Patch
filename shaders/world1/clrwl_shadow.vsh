@@ -28,13 +28,13 @@ Read the terms of modification and sharing before changing something below pleas
 #endif
 
 #if defined IS_LPV_ENABLED
-	in vec4 mc_Entity;
+	attribute vec4 mc_Entity;
 	#ifdef IRIS_FEATURE_BLOCK_EMISSION_ATTRIBUTE
-		in vec4 at_midBlock;
+		attribute vec4 at_midBlock;
 	#else
-		in vec3 at_midBlock;
+		attribute vec3 at_midBlock;
 	#endif
-	in vec3 vaPosition;
+	attribute vec3 vaPosition;
 	
 	uniform vec3 chunkOffset;
 	uniform vec3 cameraPosition;
@@ -47,10 +47,11 @@ Read the terms of modification and sharing before changing something below pleas
 	#include "/lib/voxel_write.glsl"
 #endif
 
+varying float LIGHTNING;
 // out float entity;
-out vec4 color;
+varying vec4 color;
 
-out vec2 texcoord;
+varying vec2 texcoord;
 
 
 //#include "/lib/Shadow_Params.glsl"
@@ -78,10 +79,10 @@ void main() {
 		texcoord.xy = gl_MultiTexCoord0.xy;
 		color = gl_Color;
 
-		#ifdef PLANET_CURVATURE
-			float curvature = length(feetPlayerPos.xz) / (16*8);
-			feetPlayerPos.y -= curvature*curvature * CURVATURE_AMOUNT;
-		#endif
+		// hide lightning and dragon death beams
+		vec3 normal = normalize(gl_NormalMatrix * gl_Normal);
+		LIGHTNING = 0.0;
+		if (renderStage == MC_RENDER_STAGE_ENTITIES && (entityId == ENTITY_LIGHTNING || (entityId == 0 && gl_Color.a < 0.2 && abs(normal.y) < 0.2))) LIGHTNING = 1.0;
 
 		gl_Position = customShadowPerspectiveSSBO * customShadowMatrixSSBO * vec4(feetPlayerPos, 1.0);
 	

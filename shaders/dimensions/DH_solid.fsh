@@ -1,15 +1,15 @@
 #include "/lib/settings.glsl"
 
-in DATA {
-    vec4 localPos;
-    vec4 vPos;
-    vec4 gcolor;
-    vec2 lightmapCoords;
-    vec4 normalMat;
-    flat float SSSAMOUNT;
-    flat float EMISSIVE;
-    flat int dh_material_id;
-};
+
+varying vec4 pos;
+varying vec4 localPos;
+varying vec4 vPos;
+varying vec4 gcolor;
+varying vec2 lightmapCoords;
+varying vec4 normals_and_materials;
+flat varying float SSSAMOUNT;
+flat varying float EMISSIVE;
+flat varying int dh_material_id;
 
 uniform float far;
 uniform float nightVision;
@@ -69,7 +69,7 @@ uniform sampler2D noisetex;
 uniform int frameCounter;
 uniform float frameTimeCounter;
 float blueNoise(){
-  return fract(texelFetch(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887 * frameCounter);
+  return fract(texelFetch2D(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887 * frameCounter);
 }
 float interleaved_gradientNoise_temporal(){
 	return fract(52.9829189*fract(0.06711056*gl_FragCoord.x + 0.00583715*gl_FragCoord.y)+frameTimeCounter*51.9521);
@@ -96,7 +96,7 @@ float densityAtPos(in vec3 pos){
 	vec2 coord =  uv / 512.0;
 	
 	//The y channel has an offset to avoid using two textures fetches
-	vec2 xy = texture(noisetex, coord).yx;
+	vec2 xy = texture2D(noisetex, coord).yx;
 
 	return mix(xy.r,xy.g, f.y);
 }
@@ -181,16 +181,14 @@ void main() {
         }
     #endif
 
-    vec3 normals = (normalMat.xyz);
-    float materials = normalMat.a;
+    vec3 normals = (normals_and_materials.xyz);
+    float materials = normals_and_materials.a;
 	vec2 PackLightmaps = lightmapCoords;
 
     // PackLightmaps.y *= 1.05;
     PackLightmaps = min(max(PackLightmaps,0.0)*1.05,1.0);
-
-    normals = viewToWorld(normals);
     
-    vec4 data1 = clamp( encode(normals, PackLightmaps), 0.0, 1.0);
+    vec4 data1 = clamp( encode(viewToWorld(normals), PackLightmaps), 0.0, 1.0);
     
     // alpha is material masks, set it to 0.65 to make a DH LODs mask. 
 	#ifdef DH_NOISE_TEXTURE
@@ -220,8 +218,6 @@ void main() {
     #ifdef WhiteWorld
         Albedo.rgb = vec3(0.5);
     #endif
-
-    Albedo = clamp(Albedo, 0.0, 1.0);
     
     gl_FragData[0] = vec4(encodeVec2(Albedo.x,data1.x),	encodeVec2(Albedo.y,data1.y),	encodeVec2(Albedo.z,data1.z),	encodeVec2(data1.w, materials));
     
@@ -240,14 +236,4 @@ void main() {
 	#else
 		gl_FragData[2].b = SSSAMOUNT;
 	#endif
-
-    vec4 otherData = clamp(vec4(normals * 0.5 + 0.5, 0.0), 0.0, 1.0);
-    gl_FragData[2] = clamp(gl_FragData[2], 0.0, 1.0);
-
-    gl_FragData[2] = vec4(
-        encodeVec2(gl_FragData[2].x, otherData.x),
-        encodeVec2(gl_FragData[2].y, otherData.y),
-        encodeVec2(gl_FragData[2].z, otherData.z),
-        encodeVec2(gl_FragData[2].w, otherData.w)
-    );
 }

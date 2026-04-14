@@ -58,12 +58,10 @@ vec3 drawMoon(vec3 PlayerPos, vec3 WorldSunVec, vec3 Color, inout vec3 occludeSt
 vec3 drawRealMoon(vec3 PlayerPos, vec3 WorldSunVec, vec3 Color, inout vec3 occludeStars, float size){
 
 	float Shape = min(max(dot(WorldSunVec,PlayerPos)-size,0.0)/(1.0-size),1.0);
-
-	Shape = pow(Shape, 0.15);
 	
 	occludeStars *= max(1.0-Shape*50.0, 0.0);
 
-	return Color/750.0 * Shape;
+	return Shape * Color/4000 * 3.0;
 }
 
 float w0(float a)
@@ -106,7 +104,7 @@ float h1(float a)
     return 1.0 + w3(a) / (w2(a) + w3(a));
 }
 
-vec4 texture_bicubic(sampler2D tex, vec2 uv)
+vec4 texture2D_bicubic(sampler2D tex, vec2 uv)
 {
 	vec4 texelSize = vec4(texelSize,1.0/texelSize);
 	uv = uv*texelSize.zw;
@@ -130,7 +128,7 @@ vec4 texture_bicubic(sampler2D tex, vec2 uv)
            g1(fuv.y) * (g0x * texture(tex, p2)  +
                         g1x * texture(tex, p3));
 }
-vec4 texture_bicubic_offset(sampler2D tex, vec2 uv, float noise, float scale)
+vec4 texture2D_bicubic_offset(sampler2D tex, vec2 uv, float noise, float scale)
 {
 	float offsets = noise * (2.0 * 3.141592653589793238462643383279502884197169);
 	vec2 circleOffsets = vec2(sin(offsets), cos(offsets)) * scale;
@@ -180,7 +178,7 @@ vec3 skyFromTex(vec3 pos,sampler2D sampler){
 // vec3 skyFromTexLOD(vec3 pos,sampler2D sampler, float LOD){
 // 	vec2 p = sphereToCarte(pos);
 // 
-// 	return textureLod(sampler,p*texelSize*256.+vec2(18.5,1.5)*texelSize,LOD).rgb;
+// 	return texture2DLod(sampler,p*texelSize*256.+vec2(18.5,1.5)*texelSize,LOD).rgb;
 // }
 
 vec4 skyCloudsFromTex(vec3 pos,sampler2D sampler){

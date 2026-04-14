@@ -1,4 +1,4 @@
-#if defined IS_LPV_ENABLED || defined PHOTONICS && defined PHOTONICS && !defined PH_ENABLE_HANDHELD_LIGHT
+#ifdef IS_LPV_ENABLED
 	#extension GL_ARB_shader_image_load_store: enable
 	#extension GL_ARB_shading_language_packing: enable
 #endif
@@ -22,31 +22,24 @@
 
 #include "/lib/res_params.glsl"
 
-in DATA {
-	vec4 lmtexcoord;
-	vec4 color;
+varying vec4 lmtexcoord;
+varying vec4 color;
 
-	#if defined DAMAGE_BLOCK_EFFECT && defined POM
-		vec4 tangent;
-		vec3 normalMat;
-
-		vec4 texcoordam; // .st for add, .pq for mul
-		vec2 texcoord;
-	#endif
-
-	#ifdef OVERWORLD_SHADER
-		flat vec3 WsunVec;
-	#endif
-};
+#ifdef LINES
+	flat varying int SELECTION_BOX;
+#endif
 
 #ifdef OVERWORLD_SHADER
 	const bool shadowHardwareFiltering = true;
-	uniform sampler2DShadow shadowtex0HW;
+	uniform sampler2DShadow shadow;
 	
 	#ifdef TRANSLUCENT_COLORED_SHADOWS
 		uniform sampler2D shadowcolor0;
-		uniform sampler2DShadow shadowtex1HW;
+		uniform sampler2DShadow shadowtex0;
+		uniform sampler2DShadow shadowtex1;
 	#endif
+
+	flat varying vec3 WsunVec;
 #endif
 
 uniform int renderStage;
@@ -57,7 +50,7 @@ uniform sampler2D gtexture;
 uniform sampler2D noisetex;
 uniform sampler2D colortex4;
 
-#if defined IS_LPV_ENABLED || defined PHOTONICS && defined PHOTONICS && !defined PH_ENABLE_HANDHELD_LIGHT
+#ifdef IS_LPV_ENABLED
 	uniform usampler1D texBlockData;
 	uniform sampler3D texLpv1;
 	uniform sampler3D texLpv2;
@@ -103,30 +96,23 @@ uniform vec3 relativeEyePosition;
 	#include "/lib/volumetricClouds.glsl"
 #endif
 
-uniform int frameCounter;
+#if defined IS_LPV_ENABLED || (defined DISTANT_HORIZONS && DH_CHUNK_FADING > 0)
+	uniform int frameCounter;
+#endif
 
 uniform int heldItemId;
 uniform int heldItemId2;
 
-// #if defined IS_LPV_ENABLED || RAINBOW_SELECT_BOX > 0
+#if defined IS_LPV_ENABLED || RAINBOW_SELECT_BOX > 0
 	#include "/lib/hsv.glsl"
-// #endif
+#endif
 
-#if defined IS_LPV_ENABLED || defined PHOTONICS && defined PHOTONICS && !defined PH_ENABLE_HANDHELD_LIGHT
-	#include "/lib/lpv_blocks.glsl"
+#ifdef IS_LPV_ENABLED
 	#include "/lib/lpv_common.glsl"
 	#include "/lib/lpv_render.glsl"
 #endif
 
 #undef FLASHLIGHT_BOUNCED_INDIRECT
-
-#if defined VIVECRAFT
-	uniform bool vivecraftIsVR;
-	uniform vec3 vivecraftRelativeMainHandPos;
-	uniform vec3 vivecraftRelativeOffHandPos;
-	uniform mat4 vivecraftRelativeMainHandRot;
-	uniform mat4 vivecraftRelativeOffHandRot;
-#endif
 
 #include "/lib/diffuse_lighting.glsl"
 #include "/lib/sky_gradient.glsl"
@@ -148,15 +134,6 @@ uniform int framemod8;
 
 #include "/lib/TAA_jitter.glsl"
 
-#ifdef TAA
-	float blueNoise() {
-		return fract(texelFetch(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887 * frameCounter);
-	} 
-#else
-	float blueNoise() {
-		return fract(texelFetch(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887);
-	}
-#endif
 
 //Mie phase function
 float phaseg(float x, float g){
@@ -207,14 +184,14 @@ float ComputeShadowMap(inout vec3 directLightColor, vec3 playerPos, float maxDis
 	#ifdef TRANSLUCENT_COLORED_SHADOWS
 
 		// determine when opaque shadows are overlapping translucent shadows by getting the difference of opaque depth and translucent depth
-		float shadowDepthDiff = pow(clamp((texture(shadowtex1HW, projectedShadowPosition).x - projectedShadowPosition.z) * 2.0,0.0,1.0),2.0);
+		float shadowDepthDiff = pow(clamp((shadow2D(shadowtex1, projectedShadowPosition).x - projectedShadowPosition.z) * 2.0,0.0,1.0),2.0);
 
 		// get opaque shadow data to get opaque data from translucent shadows.
-		float opaqueShadow = texture(shadowtex0HW, projectedShadowPosition).x;
+		float opaqueShadow = shadow2D(shadowtex0, projectedShadowPosition).x;
 		shadowmap += max(opaqueShadow, shadowDepthDiff);
 
 		// get translucent shadow data
-		vec4 translucentShadow = texture(shadowcolor0, projectedShadowPosition.xy);
+		vec4 translucentShadow = texture2D(shadowcolor0, projectedShadowPosition.xy);
 
 		// this curve simply looked the nicest. it has no other meaning.
 		float shadowAlpha = pow(1.0 - pow(translucentShadow.a,5.0),0.2);
@@ -227,7 +204,7 @@ float ComputeShadowMap(inout vec3 directLightColor, vec3 playerPos, float maxDis
 		translucentTint += mix(translucentShadow.rgb, vec3(1.0),  opaqueShadow*shadowDepthDiff);
 
 	#else
-		shadowmap += texture(shadowtex0HW, projectedShadowPosition).x;
+		shadowmap += shadow2D(shadow, projectedShadowPosition).x;
 	#endif
 
 	#ifdef TRANSLUCENT_COLORED_SHADOWS
@@ -260,8 +237,11 @@ float ComputeShadowMap(inout vec3 directLightColor, vec3 playerPos, float maxDis
 	const float MIX_OCCLUSION_DISTANCE = MAX_DIST*0.9;
 	const int   MAX_OCCLUSION_POINTS   = MAX_ITERATIONS;
 	
-	vec2 dcdx = dFdx(texcoord.st*texcoordam.pq);
-	vec2 dcdy = dFdy(texcoord.st*texcoordam.pq);
+	varying vec4 vtexcoordam; // .st for add, .pq for mul
+	varying vec2 vtexcoord;
+	
+	vec2 dcdx = dFdx(vtexcoord.st*vtexcoordam.pq);
+	vec2 dcdy = dFdy(vtexcoord.st*vtexcoordam.pq);
 	
 	#define diagonal3(m) vec3((m)[0].x, (m)[1].y, m[2].z)
 	#define  projMAD(m, v) (diagonal3(m) * (v) + (m)[3].xyz)
@@ -270,17 +250,23 @@ float ComputeShadowMap(inout vec3 directLightColor, vec3 playerPos, float maxDis
 	const float maxcoord = 1.0-mincoord;
 
 	uniform sampler2D normals;
+	varying vec4 tangent;
+	varying vec4 normalMat;
 
 	vec4 readNormal(in vec2 coord)
 	{
-		return textureGrad(normals,fract(coord)*texcoordam.pq+texcoordam.st,dcdx,dcdy);
+		return texture2DGradARB(normals,fract(coord)*vtexcoordam.pq+vtexcoordam.st,dcdx,dcdy);
 	}
 	vec4 readTexture(in vec2 coord)
 	{
-		return textureGrad(gtexture,fract(coord)*texcoordam.pq+texcoordam.st,dcdx,dcdy);
+		return texture2DGradARB(gtexture,fract(coord)*vtexcoordam.pq+vtexcoordam.st,dcdx,dcdy);
 	}
-	vec4 texture_POMSwitch(sampler2D sampler, vec2 lightmapCoord, vec4 dcdxdcdy){
-		return textureGrad(sampler, lightmapCoord, dcdxdcdy.xy, dcdxdcdy.zw);
+	vec4 texture2D_POMSwitch(
+	sampler2D sampler, 
+	vec2 lightmapCoord,
+	vec4 dcdxdcdy
+	){
+		return texture2DGradARB(sampler, lightmapCoord, dcdxdcdy.xy, dcdxdcdy.zw);
 	}
 #endif
 
@@ -330,13 +316,13 @@ void main() {
 
 		// vec3 worldpos = mat3(gbufferModelViewInverse) * fragpos  + gbufferModelViewInverse[3].xyz + cameraPosition;
 
-		vec3 normal = normalMat;
+		vec3 normal = normalMat.xyz;
 		vec3 tangent2 = normalize(cross(tangent.rgb,normal)*tangent.w);
 		mat3 tbnMatrix = mat3(tangent.x, tangent2.x, normal.x,
 							  tangent.y, tangent2.y, normal.y,
 							  tangent.z, tangent2.z, normal.z);
 
-		adjustedTexCoord = fract(texcoord.st)*texcoordam.pq+texcoordam.st;
+		adjustedTexCoord = fract(vtexcoord.st)*vtexcoordam.pq+vtexcoordam.st;
 		vec3 viewVector = normalize(tbnMatrix*fragpos);
 
 		float dist = length(fragpos);
@@ -344,7 +330,7 @@ void main() {
 		float maxdist = MAX_OCCLUSION_DISTANCE;
 		if (dist < maxdist) {
 
-			float depthmap = readNormal(texcoord.st).a;
+			float depthmap = readNormal(vtexcoord.st).a;
 			float used_POM_DEPTH = 1.0;
 
 	 		if ( viewVector.z < 0.0 && depthmap < 0.9999 && depthmap > 0.00001) {	
@@ -355,12 +341,12 @@ void main() {
 				#else
 					vec3 interval = viewVector.xyz/-viewVector.z/ MAX_OCCLUSION_POINTS*POM_DEPTH;
 				#endif
-				vec3 coord = vec3(texcoord.st, 1.0);
+				vec3 coord = vec3(vtexcoord.st, 1.0);
 
 				coord += interval * used_POM_DEPTH;
 
 				float sumVec = 0.5;
-				for (int loopCount = 0; (loopCount < MAX_OCCLUSION_POINTS) && (1.0 - POM_DEPTH + POM_DEPTH * readNormal(coord.st).a  ) < coord.p && coord.p >= 0.0; ++loopCount) {
+				for (int loopCount = 0; (loopCount < MAX_OCCLUSION_POINTS) && (1.0 - POM_DEPTH + POM_DEPTH * readNormal(coord.st).a  ) < coord.p  && coord.p >= 0.0; ++loopCount) {
 					coord = coord + interval * used_POM_DEPTH; 
 					sumVec += used_POM_DEPTH; 
 				}
@@ -372,13 +358,13 @@ void main() {
 					}
 				}
 
-				adjustedTexCoord = mix(fract(coord.st)*texcoordam.pq+texcoordam.st, adjustedTexCoord, max(dist-MIX_OCCLUSION_DISTANCE,0.0)/(MAX_OCCLUSION_DISTANCE-MIX_OCCLUSION_DISTANCE));
+				adjustedTexCoord = mix(fract(coord.st)*vtexcoordam.pq+vtexcoordam.st, adjustedTexCoord, max(dist-MIX_OCCLUSION_DISTANCE,0.0)/(MAX_OCCLUSION_DISTANCE-MIX_OCCLUSION_DISTANCE));
 			}
 		}
 
-		vec4 Albedo = texture_POMSwitch(gtexture, adjustedTexCoord.xy, vec4(dcdx,dcdy));
+		vec4 Albedo = texture2D_POMSwitch(gtexture, adjustedTexCoord.xy, vec4(dcdx,dcdy));
 	#else
-		vec4 Albedo = texture(gtexture, adjustedTexCoord.xy);
+		vec4 Albedo = texture2D(gtexture, adjustedTexCoord.xy);
 	#endif
 
 	#ifdef COLORWHEEL
@@ -401,16 +387,12 @@ void main() {
 #endif
 
 #if !defined DAMAGE_BLOCK_EFFECT
+	
 	gl_FragData[2] = vec4(0.0);
 	
 	#ifdef LINES
-		#if MC_VERSION == 12101
-			bool selectionBox = dot(color.rgb,vec3(0.33333)) < 0.00001;
-		#else
-			bool selectionBox = renderStage == MC_RENDER_STAGE_OUTLINE;
-		#endif
 		#ifndef SELECT_BOX
-			if(selectionBox) discard;
+			if(SELECTION_BOX > 0) discard;
 		#endif
 	#endif
 
@@ -419,7 +401,7 @@ void main() {
 	vec3 feetPlayerPos = mat3(gbufferModelViewInverse) * viewPos;
 	// vec3 feetPlayerPos_normalized = normalize(feetPlayerPos);
 
-	vec4 TEXTURE = texture(gtexture, lmtexcoord.xy)*color;
+	vec4 TEXTURE = texture2D(gtexture, lmtexcoord.xy)*color;
 	
 	#ifdef WhiteWorld
 		TEXTURE.rgb = vec3(0.5);
@@ -464,7 +446,7 @@ void main() {
 
 				#ifdef FLASHLIGHT
 					vec4 flashLightSpecularData = vec4(0.0);
-					Indirect_lighting += 0.3*calculateFlashlight(gl_FragCoord.xy*texelSize/RENDER_SCALE, viewPos, vec3(0.0), -normalize(feetPlayerPos), flashLightSpecularData, false);
+					Indirect_lighting += calculateFlashlight(gl_FragCoord.xy*texelSize/RENDER_SCALE, viewPos, vec3(0.0), -normalize(feetPlayerPos), flashLightSpecularData, false);
 				#endif
 
 				TEXTURE.rgb *= Indirect_lighting + averageSkyCol_CloudsSSBO / 360.0;
@@ -485,7 +467,7 @@ void main() {
 			gl_FragData[0].a = color.a;
 		#endif
 		#ifndef BLOOMY_PARTICLES
-			gl_FragData[1] = vec4(0.0); // for bloomy rain and stuff
+			gl_FragData[1].a = 0.0; // for bloomy rain and stuff
 		#endif
 
 		gl_FragData[3] = vec4(0.0,0.0,0.0,0.4);
@@ -566,6 +548,7 @@ void main() {
 			gl_FragData[0].rgb = (Indirect_lighting + Direct_lighting) * toLinear(color.rgb);
 
 			#if RAINBOW_SELECT_BOX > 0
+
 				#if RAINBOW_SELECT_BOX == 1
 					float selectBoxHue = length(sin(mod(1.4*worldPos, 3.14159)));
 				#else
@@ -573,9 +556,9 @@ void main() {
 				#endif
 
 				vec3 selectBoxColor = HsvToRgb(vec3(selectBoxHue, 1.0, 1.0));
-				if(selectionBox) gl_FragData[0] = vec4(toLinear(selectBoxColor), 1.0);
+				if(SELECTION_BOX > 0) gl_FragData[0].rgba = vec4(toLinear(selectBoxColor), 1.0);
 			#else
-				if(selectionBox) gl_FragData[0] = vec4(toLinear(vec3(SELECT_BOX_COL_R, SELECT_BOX_COL_G, SELECT_BOX_COL_B)), 1.0);
+				if(SELECTION_BOX > 0) gl_FragData[0].rgba = vec4(toLinear(vec3(SELECT_BOX_COL_R, SELECT_BOX_COL_G, SELECT_BOX_COL_B)), 1.0);
 			#endif
 			
 			// float LITEMATICA_SCHEMATIC_THING_MASK = 0.0;
@@ -586,23 +569,16 @@ void main() {
 
 			// gl_FragData[2] = vec4(encodeVec2(vec2(0.0)), encodeVec2(vec2(0.0)), encodeVec2(vec2(0.0)), encodeVec2(0.0, LITEMATICA_SCHEMATIC_THING_MASK));
 
-			// if (length(viewPos-normalize(sunPosition)*viewDist) < 0.03*viewDist && selectionBox) discard; // dirty fix for sun shining through selection box
+			if (length(viewPos-normalize(sunPosition)*viewDist) < 0.03*viewDist && SELECTION_BOX > 0) discard; // dirty fix for sun shining through selection box
 		#else
 			gl_FragData[0].rgb = (Indirect_lighting + Direct_lighting) * Albedo;
 		#endif
 
-		#if defined PARTICLES && !defined LIT
-			if(TEXTURE.a > 0.0 && renderStage == MC_RENDER_STAGE_WORLD_BORDER) {
-				float BN = blueNoise();
+		// distance fade targeting the world border...
+		if(TEXTURE.a < 0.7 && TEXTURE.a > 0.2) gl_FragData[0] *= clamp(1.0 - length(feetPlayerPos) / 100.0 ,0.0,1.0);
 
-				// distance fade targeting the world border...
-				float distanceFade = clamp(2.5 - length(feetPlayerPos) / (0.1*min(far, 225.0)),0.0,1.0);
-
-				if(distanceFade < BN) discard;
-			}
-		#endif
-
-		gl_FragData[0].rgb *= 0.1;	
+		gl_FragData[0].rgb *= 0.1;
+		
 
 		#if defined DISTANT_HORIZONS && DH_CHUNK_FADING > 0
 				float ditherFade = smoothstep(0.98*far, 1.0*far, viewDist);

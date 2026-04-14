@@ -8,22 +8,22 @@ float densityAtPosFog(in vec3 pos){
 	f = (f*f) * (3.-2.*f);
 	vec2 uv =  p.xz + f.xz + p.y * vec2(0.0,193.0);
 	vec2 coord =  uv / 512.0;
-	vec2 xy = texture(noisetex, coord).yx;
+	vec2 xy = texture2D(noisetex, coord).yx;
 	return mix(xy.r,xy.g, f.y);
 }
 
 
-float cloudVol(in vec3 pos, float maxDistance){
+float cloudVol(in vec3 pos, float maxDistance ){
 	
-	float fogYstart = FOG_START_HEIGHT + 3.0;
+	float fogYstart = FOG_START_HEIGHT+3;
 	vec3 samplePos = pos*vec3(1.0,1./24.,1.0);
 	vec3 samplePos2 = pos*vec3(1.0,1./48.,1.0);
 	
 	float uniformFog = 0.0;
 
-	float low_gradientFog = exp2(-0.15 * max(pos.y - fogYstart,0.0));
-	float medium_gradientFog = exp2(-0.06 * max(pos.y - fogYstart,0.0));
-	float high_gradientFog = exp2(-0.001 * max(pos.y - fogYstart,0.0));
+	float low_gradientFog = exp2(-0.3 * max(pos.y - fogYstart,0.0));
+	float medium_gradientFog = exp2(-0.15 * max(pos.y - fogYstart,0.0));
+	float high_gradientFog = exp2(-0.06 * max(pos.y - fogYstart,0.0));
 	
 	float fog_shape = 0.0;
 	float fog_erosion = 0.0;
@@ -33,22 +33,18 @@ float cloudVol(in vec3 pos, float maxDistance){
 	}
 	
 	float cloudyFog = max(min(max(fog_shape - 0.6 ,0.0) * 2.0 ,1.0) - fog_erosion * 0.4	, 0.0)	*	exp(-0.05 * max(pos.y - (fogYstart+20),0.0));
-	float rainyFog = (high_gradientFog * 0.0085 + medium_gradientFog) * rainStrength * noPuddleAreas * (1.0 + thunderStrength) * RainFog_amount;
-
-	#ifdef PER_BIOME_ENVIRONMENT
-		rainyFog += high_gradientFog * isPaleGarden * PALE_GARDEN_UNIFORM_DENSITY;
-	#endif
+	float rainyFog = (exp2(-0.008 * max(pos.y - fogYstart-500,0.0)) * 0.03 + high_gradientFog) * rainStrength * noPuddleAreas * (1.0 + thunderStrength);
 	
 	if(sandStorm > 0.0 || snowStorm > 0.0){
-		float IntenseFogs = pow(1.0 - densityAtPosFog( (samplePos2  - vec3(frameTimeCounter,0,frameTimeCounter)*15.0) * 100.0),2.0) * mix(1.0, medium_gradientFog, snowStorm);
+		float IntenseFogs = pow(1.0 - densityAtPosFog( (samplePos2  - vec3(frameTimeCounter,0,frameTimeCounter)*15.0) * 100.0),2.0) * mix(1.0, high_gradientFog, snowStorm);
 		cloudyFog = mix(cloudyFog, IntenseFogs, sandStorm+snowStorm);
 
-		low_gradientFog = mix(low_gradientFog, 1.0, sandStorm+snowStorm);
+		medium_gradientFog = mix(medium_gradientFog, 1.0, sandStorm+snowStorm);
 	}
 
-	FogDensities(low_gradientFog, cloudyFog, maxDistance, SC_fog.x, SC_fog.y);
+	FogDensities(medium_gradientFog, cloudyFog, rainyFog, maxDistance, SC_fog.x, SC_fog.y);
 
-	return uniformFog + low_gradientFog + cloudyFog + rainyFog;
+	return uniformFog + medium_gradientFog + cloudyFog + rainyFog;
 }
 
 float phaseRayleigh(float cosTheta) {
@@ -67,7 +63,10 @@ float fogPhase(float lightPoint){
 
 	return exponential;
 }
-
+float phaseCloudFog(float x, float g){
+    float gg = g * g;
+    return (gg * -0.25 + 0.25) * pow(-2.0 * (g * x) + (gg + 1.0), -1.5) / 3.14;
+}
 uniform ivec2 eyeBrightness;
 
 vec4 GetVolumetricFog(
@@ -86,8 +85,7 @@ vec4 GetVolumetricFog(
 	int SAMPLECOUNT = VL_SAMPLES;
 
 	//project pixel position into projected shadowmap space
-	vec3 dVWorld = mat3(gbufferModelViewInverse) * viewPosition;
-	vec3 playerPos = dVWorld + gbufferModelViewInverse[3].xyz;
+	vec3 playerPos = mat3(gbufferModelViewInverse) * viewPosition + gbufferModelViewInverse[3].xyz;
 	// vec3 rayStartPos = playerPos - gbufferModelViewInverse[3].xyz;
 	#ifdef CUSTOM_MOON_ROTATION
 		vec3 fragposition = mat3(customShadowMatrixSSBO) * playerPos  + customShadowMatrixSSBO[3].xyz;
@@ -103,8 +101,9 @@ vec4 GetVolumetricFog(
 	//we can use a projected vector because its orthographic projection
 	//however we still have to send it to curved shadow map space every step
 	vec3 dV = fragposition - start;
+	vec3 dVWorld = playerPos - gbufferModelViewInverse[3].xyz;
 
-	vec3 rayDir = normalize(playerPos);
+	// vec3 nPlayerPos = normalize(playerPos);
 
 	float rayLength = length(dVWorld);
 
@@ -133,12 +132,13 @@ vec4 GetVolumetricFog(
 	// float atmosphereAbsorbance = 1.0;
 	vec3 atmosphereAbsorbance = vec3(1.0);
 
-	float SdotV = dot(sunVector, rayDir);
+	float SdotV = dot(sunVector, normalize(viewPosition));
 
 	///// ----- fog lighting
 	//Mie phase + somewhat simulates multiple scattering (Horizon zero down cloud approx)
-	float sunPhase = fogPhase(SdotV)*5.0;
-	float skyPhase = 0.5 + pow(1.0-pow(1.0-clamp(rayDir.y*0.5+0.5,0.0,1.0),2.0),5.0)*2.0;
+	float sunPhase = fogPhase(SdotV)*5.0;//  phaseCloudFog(SdotV, 0.9) + phaseCloudFog(SdotV, 0.85) + phaseCloudFog(SdotV, 0.5) * 5.0;
+	// float sunPhase2 = (phaseCloudFog(SdotV, 0.85) + phaseCloudFog(SdotV, 0.5)) * 5.0;
+	float skyPhase = 0.5 + pow(1.0-pow(1.0-clamp(normalize(playerPos).y*0.5+0.5,0.0,1.0),2.0),5.0)*2.0;
 	float rayL = phaseRayleigh(SdotV);
 
 	vec3 rC = vec3(sky_coefficientRayleighR*1e-6, sky_coefficientRayleighG*1e-5, sky_coefficientRayleighB*1e-5) ;
@@ -155,7 +155,7 @@ vec4 GetVolumetricFog(
 	skyLightPhased *= skyPhase;
 	LightSourcePhased *= sunPhase;
 
-	#ifdef AMBIENT_LIGHT_ONLY
+	#ifdef ambientLight_only
 		LightSourcePhased = vec3(0.0);
 	#endif
 
@@ -200,14 +200,14 @@ vec4 GetVolumetricFog(
 				shadowPos = shadowPos*vec3(0.5,0.5,0.5/6.0)+0.5;
 
 				#ifdef TRANSLUCENT_COLORED_SHADOWS
-					sh = vec3(texture(shadowtex0HW, shadowPos).x);
+					sh = vec3(shadow2D(shadowtex0, shadowPos).x);
 
-					if(texture(shadowtex1HW, shadowPos).x > shadowPos.z && sh.x < 1.0){
-						vec4 translucentShadow = texture(shadowcolor0, shadowPos.xy);
+					if(shadow2D(shadowtex1, shadowPos).x > shadowPos.z && sh.x < 1.0){
+						vec4 translucentShadow = texture2D(shadowcolor0, shadowPos.xy);
 						if(translucentShadow.a < 0.9) sh = normalize(translucentShadow.rgb+0.0001);
 					}
 				#else
-					sh = vec3(texture(shadowtex0HW, shadowPos).x);
+					sh = vec3(shadow2D(shadow, shadowPos).x);
 				#endif
 			}
 
@@ -216,14 +216,15 @@ vec4 GetVolumetricFog(
 
 		#ifdef PER_BIOME_ENVIRONMENT
 			float maxDistance = inBiome * min(max(1.0 -  length(d*dVWorld.xz)/(32*8),0.0)*2.0,1.0);
-			float fogDensity = cloudVol(progressW, maxDistance) * inACave;
+			float densityVol = cloudVol(progressW, maxDistance) * inACave;
 		#else
-			float fogDensity = cloudVol(progressW, 0.0) * inACave;
+			float densityVol = cloudVol(progressW, 0.0) * inACave;
 		#endif
 
 		//------------------------------------
 		//------ MAIN FOG EFFECT
 		//------------------------------------
+			float fogDensity = densityVol;
 			float fogVolumeCoeff = exp(-fogDensity*dd*dL); // this is like beer-lambert law or something
 
 			#ifdef PER_BIOME_ENVIRONMENT
@@ -235,9 +236,42 @@ vec4 GetVolumetricFog(
 			#endif
 
 			vec3 Lightning = Iris_Lightningflash_VLfog(progressP);
-			vec3 lighting = DirectLight + indirectLight + 0.0025 * Lightning;
+			vec3 lighting = DirectLight + indirectLight + 0.1 * Lightning;
 			
 			color += (lighting - lighting * fogVolumeCoeff) * totalAbsorbance;
+
+			#if defined FLASHLIGHT && defined FLASHLIGHT_FOG_ILLUMINATION && !defined VL_CLOUDS_DEFERRED
+				// vec3 shiftedViewPos = mat3(gbufferModelView)*(progressW-cameraPosition) + vec3(-0.25, 0.2, 0.0);
+				// vec3 shiftedPlayerPos = mat3(gbufferModelViewInverse) * shiftedViewPos;
+					vec3 shiftedViewPos;
+    				vec3 shiftedPlayerPos;
+					float forwardOffset;
+
+    				#ifdef VIVECRAFT
+    				    if (vivecraftIsVR) {
+							forwardOffset = 0.0;
+    				        shiftedPlayerPos = (progressP) + ( vivecraftRelativeMainHandPos);
+    				        shiftedViewPos = shiftedPlayerPos * mat3(vivecraftRelativeMainHandRot);
+    				    } else
+    				#endif
+    				{
+						forwardOffset = 0.5;
+						shiftedViewPos = mat3(gbufferModelView)*(progressP) + vec3(-0.25, 0.2, 0.0);
+						shiftedPlayerPos = mat3(gbufferModelViewInverse) * shiftedViewPos;
+    				}
+
+				vec2 scaledViewPos = shiftedViewPos.xy / max(-shiftedViewPos.z - forwardOffset, 1e-7);
+				float linearDistance = length(shiftedPlayerPos);
+				float shiftedLinearDistance = length(scaledViewPos);
+
+				float lightFalloff = 1.0 - clamp(1.0-linearDistance/FLASHLIGHT_RANGE, -0.999,1.0);
+				lightFalloff = max(exp(-10.0 * FLASHLIGHT_BRIGHTNESS_FALLOFF_MULT * lightFalloff),0.0);
+				float projectedCircle = clamp(1.0 - shiftedLinearDistance*FLASHLIGHT_SIZE,0.0,1.0);
+
+				vec3 flashlightGlow = vec3(FLASHLIGHT_R,FLASHLIGHT_G,FLASHLIGHT_B) * lightFalloff * projectedCircle * 0.5;
+
+				color += (flashlightGlow - flashlightGlow * exp(-max(fogDensity,0.005)*dd*dL)) * totalAbsorbance;
+			#endif
 
 			// kill fog absorbance when in caves.
 			totalAbsorbance *= mix(1.0, fogVolumeCoeff, lightLevelZero);
@@ -255,7 +289,7 @@ vec4 GetVolumetricFog(
 
 			// Pbr for air, yolo mix between mie and rayleigh for water droplets
 			vec3 rL = rC*airCoef.x;
-			vec3 m =  mC*(airCoef.y+fogDensity*300.0);
+			vec3 m =  mC*(airCoef.y+densityVol*300.0);
 
 			// calculate the atmosphere haze seperately and purely additive to color, do not contribute to absorbtion.
 			vec3 atmosphereVolumeCoeff = exp(-(rL+m)*dd*dL);

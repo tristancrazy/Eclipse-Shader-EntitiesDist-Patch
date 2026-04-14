@@ -2,20 +2,15 @@
 
 #include "/lib/SSBOs.glsl"
 
-in DATA {
-	flat vec2 TAA_Offset;
+#ifndef END_SHADER
+	flat varying vec3 WsunVec;
+#endif
+flat varying vec2 TAA_Offset;
 
-	#ifdef OVERWORLD_SHADER
-		flat vec3 WsunVec;
-	#endif
-};
-
-#include "/lib/util.glsl"
 #include "/lib/res_params.glsl"
 
 uniform sampler2D depthtex0;
 uniform sampler2D depthtex1;
-uniform sampler2D depthtex2;
 
 #ifdef DISTANT_HORIZONS
 	uniform sampler2D dhDepthTex;
@@ -31,28 +26,22 @@ uniform sampler2D depthtex2;
 	#define dhVoxyDepthTex1 vxDepthTexOpaque
 #endif
 
-#include "/lib/Shadow_Params.glsl"
-
 uniform sampler2D colortex1;
 uniform sampler2D colortex3; // Noise
-uniform sampler2D colortex4;
-uniform sampler2D colortex5;
 uniform sampler2D colortex6; // Noise
 uniform sampler2D colortex7; // Noise
 uniform sampler2D colortex8; // Noise
-uniform sampler2D colortex9;
 uniform sampler2D colortex14; // Noise
 uniform sampler2D colortex10; // Noise
 uniform sampler2D colortex12; // Noise
 uniform sampler2D colortex13; // Noise
+uniform sampler2D colortex15; // Noise
 uniform int isEyeInWater;
-
-const bool shadowHardwareFiltering = true;
-uniform sampler2D shadowtex0;
-uniform sampler2DShadow shadowtex0HW;
+uniform sampler2D shadow;
 
 #ifdef TRANSLUCENT_COLORED_SHADOWS
 	uniform sampler2D shadowcolor0;
+	uniform sampler2D shadowtex0;
 	uniform sampler2D shadowtex1;
 #endif
 
@@ -65,9 +54,21 @@ uniform float rainStrength;
 uniform int frameCounter;
 uniform ivec2 eyeBrightnessSmooth;
 
+
+uniform mat4 gbufferModelViewInverse;
+uniform mat4 gbufferModelView;
+
+
+uniform vec3 cameraPosition;
+uniform mat4 gbufferProjection;
+uniform mat4 gbufferProjectionInverse;
+
 uniform vec3 previousCameraPosition;
+uniform mat4 gbufferPreviousProjection;
 uniform mat4 gbufferPreviousModelView;
 
+uniform mat4 shadowModelView;
+uniform mat4 shadowProjection;
 uniform float viewWidth;
 uniform float aspectRatio;
 uniform float viewHeight;
@@ -76,32 +77,19 @@ uniform float viewHeight;
 uniform float near;
 uniform float dhVoxyFarPlane;
 uniform float dhVoxyNearPlane;
-uniform float nightVision;
 
-#define DEFERRED_SPECULAR
-#define DEFERRED_SSR_QUALITY 30 // [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95 100 200 300 400 500]
-#define DEFERRED_BACKGROUND_REFLECTION
-#define DEFERRED_ROUGH_REFLECTION
-
-#ifdef DEFERRED_SPECULAR
-#endif
-#if DEFERRED_SSR_QUALITY > -1
-#endif
-#ifdef DEFERRED_BACKGROUND_REFLECTION
-#endif
-#ifdef DEFERRED_ROUGH_REFLECTION
-#endif
-
-uniform float waterEnteredAltitude;
-uniform float sunElevation;
-
-#include "/lib/projections.glsl"
-#include "/lib/DistantHorizons_projections.glsl"
-#include "/lib/color_transforms.glsl"
-#include "/lib/waterBump.glsl"
 #include "/lib/Shadows.glsl"
 
 #define ffstep(x,y) clamp((y - x) * 1e35,0.0,1.0)
+#define diagonal3(m) vec3((m)[0].x, (m)[1].y, m[2].z)
+#define  projMAD(m, v) (diagonal3(m) * (v) + (m)[3].xyz)
+vec3 toScreenSpace(vec3 p) {
+	vec4 iProjDiag = vec4(gbufferProjectionInverse[0].x, gbufferProjectionInverse[1].y, gbufferProjectionInverse[2].zw);
+    vec3 p3 = p * 2. - 1.;
+    vec4 fragposition = iProjDiag * p3.xyzz + gbufferProjectionInverse[3];
+    return fragposition.xyz / fragposition.w;
+}
+
 
 vec3 worldToView(vec3 worldPos) {
     vec4 pos = vec4(worldPos, 0.0);
@@ -173,18 +161,25 @@ float R2_dither(){
 }
 float blueNoise(){
 	#ifdef TAA
-  		return fract(texelFetch(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887 * frameCounter);
+  		return fract(texelFetch2D(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887 * frameCounter);
 	#else
-		return fract(texelFetch(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887);
+		return fract(texelFetch2D(noisetex, ivec2(gl_FragCoord.xy)%512, 0).a + 1.0/1.6180339887);
 	#endif
 }
 vec4 blueNoise(vec2 coord){
-  return texelFetch(colortex6, ivec2(coord)%512 , 0) ;
+  return texelFetch2D(colortex6, ivec2(coord)%512 , 0) ;
 }
 vec2 R2_samples(int n){
 	vec2 alpha = vec2(0.75487765, 0.56984026);
 	return fract(alpha * n);
 }
+
+
+
+
+
+
+
 
 vec3 viewToWorld(vec3 viewPos) {
     vec4 pos;
@@ -194,7 +189,10 @@ vec3 viewToWorld(vec3 viewPos) {
     return pos.xyz;
 }
 
+#include "/lib/Shadow_Params.glsl"
 
+
+const float PI = 3.141592653589793238462643383279502884197169;
 vec2 SpiralSample(
 	int samples, int totalSamples, float rotation, float Xi
 ){
@@ -236,6 +234,8 @@ vec2 CleanSample(
 
 
 
+#include "/lib/DistantHorizons_projections.glsl"
+
 float DH_ld(float dist) {
     return (2.0 * dhVoxyNearPlane) / (dhVoxyFarPlane + dhVoxyNearPlane - dist * (dhVoxyFarPlane - dhVoxyNearPlane));
 }
@@ -271,14 +271,7 @@ float convertHandDepth_2(in float depth, bool hand) {
 		vec4 viewPos = vec4(0.0);
 		vec3 feetPlayerPos = vec3(0.0);
 
-		float depth;
-
-		if(hand) {
-			depth = texelFetch(depthtex1, samplecoord, 0).x;
-			convertHandDepth(depth);
-		} else {
-			depth = texelFetch(depthtex2, samplecoord, 0).x;
-		}
+		float depth = convertHandDepth_2(texelFetch2D(depthtex1, samplecoord, 0).x, hand);
 
 		if (depth < 1.0) {
 			feetPlayerPos = vec3(texcoord, depth) * 2.0 - 1.0;
@@ -286,7 +279,7 @@ float convertHandDepth_2(in float depth, bool hand) {
 			viewPos.xyz /= viewPos.w;
 	
 		} else {
-			depth = texelFetch(dhVoxyDepthTex1, samplecoord, 0).x;
+			depth = texelFetch2D(dhVoxyDepthTex1, samplecoord, 0).x;
 
 			feetPlayerPos = vec3(texcoord, depth) * 2.0 - 1.0;
 			viewPos = iProjDiag_DH * feetPlayerPos.xyzz + dhVoxyProjectionInverse[3];
@@ -330,14 +323,7 @@ vec2 SSAO(
 			#if defined DISTANT_HORIZONS || defined VOXY
 				vec3 offsetViewPos = toScreenSpace_DH_SSAO((offsetUV*texelSize - jitterOffsets) * (1.0/RENDER_SCALE), offsetUV, hand);
 			#else
-				float sampleDepth;
-				if(hand) {
-					sampleDepth = texelFetch(depthtex1, offsetUV, 0).x;
-					convertHandDepth(sampleDepth);
-				} else {
-					sampleDepth = texelFetch(depthtex2, offsetUV, 0).x;
-				}
-				
+				float sampleDepth = convertHandDepth_2(texelFetch2D(depthtex1, offsetUV, 0).x, hand);
 				vec3 offsetViewPos = toScreenSpace(vec3((offsetUV*texelSize - jitterOffsets) * (1.0/RENDER_SCALE), sampleDepth));
 			#endif
 
@@ -391,13 +377,14 @@ float ld(float dist) {
 
 #include "/lib/sky_gradient.glsl"
 
-/* RENDERTARGETS:3,14,9*/
+/* RENDERTARGETS:3,14,12*/
 
 void main() {
+
 	float noise = R2_dither();
 	vec2 texcoord = gl_FragCoord.xy*texelSize;
 	
-	vec4 data = texelFetch(colortex1,ivec2(gl_FragCoord.xy),0);
+	vec4 data = texelFetch2D(colortex1,ivec2(gl_FragCoord.xy),0);
 	vec4 dataUnpacked0 = vec4(decodeVec2(data.x),decodeVec2(data.y));
 	vec4 dataUnpacked1 = vec4(decodeVec2(data.z),decodeVec2(data.w));
 	vec3 normal = mat3(gbufferModelViewInverse) * clamp(worldToView( decode(dataUnpacked0.yw) ),-1.,1.);
@@ -406,15 +393,7 @@ void main() {
 
 	float lightLeakFix = clamp(pow(eyeBrightnessSmooth.y/240. + lightmap.y,2.0) ,0.0,1.0);
 
-	gl_FragData[1] = vec4(0.0);
-
-	
-	vec4 SpecularData = texelFetch(colortex8, ivec2(gl_FragCoord.xy), 0);
-
-	vec4 specdataUnpacked0 = vec4(decodeVec2(SpecularData.x),decodeVec2(SpecularData.y));
-	vec4 specdataUnpacked1 = vec4(decodeVec2(SpecularData.z),decodeVec2(SpecularData.w));
-
-	vec3 FlatNormals = normalize(vec3(specdataUnpacked0.yw,specdataUnpacked1.y) * 2.0 - 1.0);
+	gl_FragData[1] = vec4(0.0,0.0, texelFetch2D(colortex14, ivec2(gl_FragCoord.xy), 0).b, texelFetch2D(colortex14,ivec2((floor(gl_FragCoord.xy)/VL_RENDER_SCALE*texelSize+0.5*texelSize)/texelSize),0).a);
 
 
 	// bool lightningBolt = abs(dataUnpacked1.w-0.5) <0.01;
@@ -425,38 +404,24 @@ void main() {
 	bool hand = abs(dataUnpacked1.w-0.75) < 0.01;
 	// bool blocklights = abs(dataUnpacked1.w-0.8) <0.01;
 
-	float z = texelFetch(depthtex1,ivec2(gl_FragCoord.xy),0).x;
-	float z0 = texelFetch(depthtex0,ivec2(gl_FragCoord.xy),0).x;
+	float z = texelFetch2D(depthtex1,ivec2(gl_FragCoord.xy),0).x;
+	float z0 = texelFetch2D(depthtex0,ivec2(gl_FragCoord.xy),0).x;
 
 	#if defined DISTANT_HORIZONS || defined VOXY
-		float DH_depth1 = 1.0;
-		float swappedDepth;
-		if(z >= 1.0) {
-			DH_depth1 = texelFetch(dhVoxyDepthTex1,ivec2(gl_FragCoord.xy),0).x;
-			swappedDepth = DH_depth1;
-		} else {
-			swappedDepth = z;
-		}
+		float DH_depth1 = texelFetch2D(dhVoxyDepthTex1,ivec2(gl_FragCoord.xy),0).x;
+		float DH_depth0 = texelFetch2D(dhVoxyDepthTex,ivec2(gl_FragCoord.xy),0).x;
+
+		float swappedDepth = z >= 1.0 ? DH_depth1 : z;
 	#else
 		float DH_depth1 = 1.0;
 		float swappedDepth = z;
 	#endif
-
-	bool isSky = swappedDepth >= 1.0;
 
 	vec3 viewPos = toScreenSpace_DH(texcoord/RENDER_SCALE - TAA_Offset*texelSize*0.5, z, DH_depth1);
 	// vec3 playerPos = mat3(gbufferModelViewInverse) * viewPos;
 	
 	float depth = z;
 	float depth0 = z0;
-
-	#if RAIN_MODE == 0
-		vec2 encodedRain = texelFetch(colortex9, ivec2(gl_FragCoord.xy), 0).aa;
-	#else
-		vec4 Rain = texelFetch(colortex9, ivec2(gl_FragCoord.xy), 0);
-		Rain = clamp(Rain, 0.0, 1.0);
-		vec2 encodedRain = vec2(encodeVec2(Rain.xy), encodeVec2(Rain.zw));
-	#endif
 
 	#if defined DISTANT_HORIZONS || defined VOXY
 		float _near = near;
@@ -474,7 +439,7 @@ void main() {
 		_far = far*4.0;
 
 		if (depth0 >= 1.0) {
-			depth0 = texelFetch(dhVoxyDepthTex,ivec2(gl_FragCoord.xy),0).x;
+			depth0 = DH_depth0;
 			_near = dhVoxyNearPlane;
 			_far = dhVoxyFarPlane;
 		}
@@ -484,52 +449,68 @@ void main() {
 	#endif
 
 	if(depth < 1.0 || depth0 < 1.0)
-		gl_FragData[2] = vec4(encodedRain, depth0 * depth0, depth * depth);
+		gl_FragData[2] = vec4(vec2(0.0), depth0 * depth0 * 65000.0, depth * depth * 65000.0);
 	else
-		gl_FragData[2] = vec4(encodedRain, 1.0, 1.0);
+		gl_FragData[2] = vec4(vec2(0.0), 65000.0, 65000.0);
+
+	vec3 FlatNormals = normalize(texture2D(colortex15,texcoord).rgb * 2.0 - 1.0);
 
 	#if indirect_effect == SSAO_FILTERED || indirect_effect == SSAO_HQ
 
 		if(z >= 1.0) FlatNormals = normal;
 
-		vec2 SSAO_SSS = vec2(1.0,0.0);
 
-		if(!isSky) {
-			SSAO_SSS = SSAO(viewPos, worldToView(normal), worldToView(FlatNormals), hand, noise);
-			SSAO_SSS.y = clamp(SSAO_SSS.y + 0.5 * lightmap.y*lightmap.y,0.0,1.0);
-		}
+		vec2 SSAO_SSS = SSAO(viewPos, worldToView(normal),worldToView(FlatNormals), hand, noise);
+		SSAO_SSS.y = clamp(SSAO_SSS.y + 0.5 * lightmap.y*lightmap.y,0.0,1.0);
+
+		if(swappedDepth >= 1.0) SSAO_SSS = vec2(1.0,0.0);
 
 		gl_FragData[1].xy = SSAO_SSS;
 	#endif
 
+
+
+	/*------------- VOLUMETRICS BEHIND TRANSLUCENTS PASS-THROUGH -------------*/
+	// colortex10 is the history buffer used in reprojection of volumetrics, i can just hijack that.
+	// gl_FragData[3] = texture2D(colortex10, texcoord);
+	
+	// if(texture2D(colortex7,texcoord).a > 0.0) {
+	// 	vec4 VL = BilateralUpscale_VLFOG(colortex13, depthtex1, gl_FragCoord.xy - 1.5, ld(z));
+		
+	// 	// gl_FragData[3].rgb += VL.rgb * gl_FragData[3].a;
+	// 	// gl_FragData[3].a *= VL.a; 
+	// }
+
+
+
+
 #if defined OVERWORLD_SHADER || (defined END_ISLAND_LIGHT && defined END_SHADER)
-	if (!isSky){
-		vec3 feetPlayerPos = mat3(gbufferModelViewInverse) * viewPos + gbufferModelViewInverse[3].xyz;
-		#ifdef END_SHADER
-			vec3 sunVec = normalize(END_LIGHT_POS-(feetPlayerPos+cameraPosition));
-		#else
-			vec3 sunVec = WsunVec;
-		#endif
+	vec3 feetPlayerPos = mat3(gbufferModelViewInverse) * viewPos + gbufferModelViewInverse[3].xyz;
+	#ifdef END_SHADER
+		vec3 WsunVec = normalize(END_LIGHT_POS-(feetPlayerPos+cameraPosition));
+	#endif
 
-		vec4 SpecularTex = vec4(specdataUnpacked0.xz, specdataUnpacked1.xz);
+	float SpecularTex = texture2D(colortex8,texcoord).z;
+	float LabSSS = clamp((-64.0 + SpecularTex * 255.0) / 191.0 ,0.0,1.0);
 
-		float LabSSS = clamp((-64.0 + SpecularTex.z * 255.0) / 191.0 ,0.0,1.0);
+	float NdotL = clamp(dot(normal,WsunVec),0.0,1.0);
+	float vanillAO = clamp(texture2D(colortex15,texcoord).a,0.0,1.0)  ;
 
-		float NdotL = clamp(dot(normal, sunVec),0.0,1.0);
+	#ifdef END_SHADER
+		float minshadowfilt = Min_Shadow_Filter_Radius_END;
+	#else
+		float minshadowfilt = Min_Shadow_Filter_Radius;
+	#endif
+	float maxshadowfilt = Max_Shadow_Filter_Radius;
 
-		#ifdef END_SHADER
-			float minshadowfilt = Min_Shadow_Filter_Radius_END;
-		#else
-			float minshadowfilt = Min_Shadow_Filter_Radius;
-		#endif
-		float maxshadowfilt = Max_Shadow_Filter_Radius;
+	#ifdef BASIC_SHADOW_FILTER
+		if (LabSSS > 0.0 && NdotL < 0.001){  
+			minshadowfilt = 50;
+		//  maxshadowfilt = 50;
+		 }
+	#endif
 
-		#ifdef BASIC_SHADOW_FILTER
-			if (LabSSS > 0.0 && NdotL < 0.001){  
-				minshadowfilt = 50;
-			//  maxshadowfilt = 50;
-			}
-		#endif
+	// if (z < 1.0){
 
 		gl_FragData[0] = vec4(minshadowfilt, 0.0, 0.0, 0.0);
 
@@ -587,7 +568,8 @@ void main() {
 						vec2 scales = vec2(0.0, Max_Filter_Depth_END);
 					#endif
 					float blockerCount = 0.0;
-					float rdMul = distortFactor*(1.0+mult)*d0k;
+					float rdMul = distortFactor*(1.0+mult)*d0*k/shadowMapResolution;
+					float diffthreshM = diffthresh*mult*d0*k/20.;
 					float avgDepth = 0.0;
 
 					for(int i = 0; i < VPS_Search_Samples; i++){
@@ -597,7 +579,7 @@ void main() {
 					
 						float weight = 3.0 + (i+noise) * rdMul/SHADOW_FILTER_SAMPLE_COUNT*shadowMapResolution*distortFactor/2.7;
 						
-						float d = texelFetch(shadowtex0, ivec2((projectedShadowPosition.xy+offsetS*rdMul)*shadowMapResolution),0).x;
+						float d = texelFetch2D(shadow, ivec2((projectedShadowPosition.xy+offsetS*rdMul)*shadowMapResolution),0).x;
 						float b = smoothstep(weight*diffthresh/2.0, weight*diffthresh, projectedShadowPosition.z - d);
 
 						blockerCount += b;
@@ -624,6 +606,6 @@ void main() {
 				}
 			// }
 		#endif
-	}
+	// }
 #endif
 }

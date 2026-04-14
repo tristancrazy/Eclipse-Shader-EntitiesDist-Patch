@@ -17,7 +17,7 @@ uniform float frameTimeCounter;
 uniform sampler2D noisetex;
 
 const bool shadowHardwareFiltering = true;
-uniform sampler2DShadow shadowtex0HW;
+uniform sampler2DShadow shadow;
 
 #ifdef DISTANT_HORIZONS
 uniform sampler2D dhDepthTex;
@@ -26,7 +26,6 @@ uniform sampler2D dhDepthTex1;
 uniform sampler2D depthtex0;
 uniform sampler2D depthtex1;
 
-uniform sampler2D colortex11;
 uniform sampler2D colortex12;
 // uniform sampler2D colortex7;
 uniform sampler2D colortex4;
@@ -37,20 +36,14 @@ uniform sampler2D colortex5;
 #include "/lib/waterBump.glsl"
 #include "/lib/Shadow_Params.glsl"
 
-in DATA {
-	vec4 pos;
-	vec4 gcolor;
-		
-	vec4 normalMat;
-	vec2 lightmapCoords;
-	flat int isWater;
+varying vec4 pos;
+varying vec4 gcolor;
 
-	mat4 normalmatrix;
+varying vec4 normals_and_materials;
 
-	flat vec3 WsunVec;
-	flat vec3 WsunVec2;
-};
+varying vec2 lightmapCoords;
 
+flat varying int isWater;
 
 // uniform float far;
 uniform float dhVoxyFarPlane;
@@ -73,6 +66,8 @@ uniform int frameCounter;
 
 
 // uniform sampler2D colortex4;
+flat varying vec3 WsunVec;
+flat varying vec3 WsunVec2;
 
 
 
@@ -197,11 +192,16 @@ vec3 rayTrace(vec3 dir, vec3 position, float dither, float fresnel) {
     float maxZ = spos.z;
     
     for (int i = 0; i <= int(quality); i++) {
-		#if FORWARD_SSR_QUALITY != 1
+		#if DEFERRED_SSR_QUALITY != 1
 			if(spos.x < 0 || spos.x > 1 || spos.y < 0 || spos.y > 1) return vec3(1.1);
 		#endif
 
-		float sp = texelFetch(dhDepthTex, ivec2(spos.xy /texelSize), 0).r;
+		#ifdef QUARTER_RES_SSR
+        	float sampleDepth = sqrt(texelFetch2D(colortex12, ivec2(spos.xy / (texelSize * 4.0)), 0).a / 65000.0);
+			float sp = DH_inv_ld(sampleDepth);
+		#else
+			float sp = texelFetch2D(dhDepthTex, ivec2(spos.xy /texelSize), 0).r;
+		#endif
         
         if (sp < max(minZ, maxZ) && sp > min(minZ, maxZ)) {
             return vec3(spos.xy / RENDER_SCALE, sp);
@@ -281,7 +281,7 @@ vec3 applyBump(mat3 tbnMatrix, vec3 bump, float puddle_values){
 #ifdef FORWARD_ROUGH_REFLECTION
 #endif
 
-/* RENDERTARGETS:2,7,11,14 */
+/* RENDERTARGETS:2,7,14 */
 void main() {
 if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	{
    
@@ -302,7 +302,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
     float material = 0.7;
     if(iswater) material = 1.0;
 
-    vec3 normals = normalize(normalMat.xyz);
+    vec3 normals = normalize(normals_and_materials.xyz);
     if (!gl_FrontFacing) normals = -normals;
 
    vec3 worldSpaceNormals =  mat3(gbufferModelViewInverse) * normals;
@@ -320,7 +320,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 
 	vec3 waterNormals = worldSpaceNormals;
 
-	#ifndef VANILLA_LIKE_WATER
+	#ifndef Vanilla_like_water
 		if(iswater && abs(worldSpaceNormals.y) > 0.1){
 			vec3 waterPos = (playerPos+cameraPosition).xzy;
 
@@ -338,7 +338,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
     
 
     gl_FragData[0] = gcolor;
-    float UnchangedAlpha = gl_FragData[0].a;
+    // float UnchangedAlpha = gl_FragData[0].a;
 
 	#ifdef WhiteWorld
 		gl_FragData[0].rgb = vec3(0.5);
@@ -348,7 +348,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 	vec3 Albedo = toLinear(gl_FragData[0].rgb);
 
 	#ifndef WhiteWorld
-	    #ifdef VANILLA_LIKE_WATER
+	    #ifdef Vanilla_like_water
 			if (iswater) Albedo *= sqrt(luma(Albedo));
 		#else
 	    	if (iswater){
@@ -393,7 +393,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
     	    	Shadows = 0.0;
     	    	projectedShadowPosition = projectedShadowPosition * vec3(0.5,0.5,0.5/6.0) + vec3(0.5);
 
-    	    	Shadows = texture(shadowtex0HW, projectedShadowPosition + vec3(0.0,0.0, smallbias)).x;
+    	    	Shadows = shadow2D(shadow, projectedShadowPosition + vec3(0.0,0.0, smallbias)).x;
     	    }
         #endif
 
@@ -449,7 +449,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
             	previousPosition.xy = projMAD(dhPreviousProjection, previousPosition).xy / -previousPosition.z * 0.5 + 0.5;
             	if (previousPosition.x > 0.0 && previousPosition.y > 0.0 && previousPosition.x < 1.0 && previousPosition.y < 1.0) {
 					Reflections.a = 1.0;
-					Reflections.rgb = texture(colortex5, previousPosition.xy).rgb;
+					Reflections.rgb = texture2D(colortex5, previousPosition.xy).rgb;
             	}
             }else{
 				if (rtPos.x > 0.0 && rtPos.y > 0.0 && rtPos.x < 1.0 && rtPos.y < 1.0) SSR_HIT_SKY_MASK = 1.0;
@@ -458,12 +458,12 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 		#ifdef FORWARD_BACKGROUND_REFLECTION
             BackgroundReflection = skyCloudsFromTex(mat3(gbufferModelViewInverse) * reflectedVector, colortex4).rgb / 1200.0;
         #endif
-        #if defined OVERWORLD_SHADER && SUN_SPECULAR_MULT > 0
-            SunReflection = SUN_SPECULAR_MULT * DirectLightColor * Shadows * GGX(normalize(normals), -normalize(viewPos), normalize(WsunVec2), roughness, f0) * (1.0-Reflections.a);
+        #ifdef WATER_SUN_SPECULAR
+            SunReflection = (DirectLightColor * Shadows) * GGX(normalize(normals), -normalize(viewPos), normalize(WsunVec2), roughness, f0) * (1.0-Reflections.a);
         #endif
 
 		Reflections_Final = mix(FinalColor, mix(BackgroundReflection*SSR_HIT_SKY_MASK, Reflections.rgb, Reflections.a), fresnel);
-		Reflections_Final += SunReflection*SSR_HIT_SKY_MASK;
+		Reflections_Final += SunReflection*indoors;
 
 		gl_FragData[0].a = gl_FragData[0].a + (1.0-gl_FragData[0].a) * fresnel;
 	
@@ -479,8 +479,9 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
     #ifdef DH_OVERDRAW_PREVENTION
         float distancefade = min(max(1.0 - viewDist/clamp(far-16*4, 16, maxOverdrawDistance),0.0)*5,1.0);
 
-        if(texelFetch(depthtex0, ivec2(gl_FragCoord.xy), 0).x < 1.0 ||  distancefade > 0.0){
-            discard;
+        if(texelFetch2D(depthtex0, ivec2(gl_FragCoord.xy), 0).x < 1.0 ||  distancefade > 0.0){
+            gl_FragData[0].a = 0.0;
+            material = 0.0;
         }
     #endif
 	
@@ -490,21 +491,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
    
     gl_FragData[1] = vec4(Albedo, material);
 
-	vec4 GLASS_TINT_COLORS = vec4(Albedo, UnchangedAlpha);
-	
-	#ifdef BIOME_TINT_WATER
-		if (iswater) GLASS_TINT_COLORS.rgb = toLinear(gcolor.rgb);
-	#endif
-	
-	vec4 blockBreak = texelFetch(colortex11, ivec2(gl_FragCoord.xy), 0);
-
-	if(blockBreak.a > 0.99) {
-		gl_FragData[2] = blockBreak;
-	} else {
-		gl_FragData[2] = vec4(0.0, encodeVec2(GLASS_TINT_COLORS.rg), encodeVec2(GLASS_TINT_COLORS.ba), 0.5);
-	}
-
-	gl_FragData[3] = vec4(1, 1, encodeVec2(lightmapCoords.x, lightmapCoords.y), 1);
+	gl_FragData[2] = vec4(1, 1, encodeVec2(lightmapCoords.x, lightmapCoords.y), 1);
 
 }
 

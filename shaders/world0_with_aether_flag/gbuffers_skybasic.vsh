@@ -1,5 +1,5 @@
 #version 430 compatibility
 
-#define OVERWORLD_SHADER
-
-#include "/dimensions/skybasic.vsh"
+void main() {
+	gl_Position = ftransform();
+}

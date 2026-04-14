@@ -1,9 +1,9 @@
-#if defined MAIN_SHADOW_PASS && (defined LPV_HANDHELD_SHADOWS && defined IS_LPV_ENABLED || defined PHOTONICS && defined PHOTONICS && !defined PH_ENABLE_HANDHELD_LIGHT) && !defined VOXY_PROGRAM
+#if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS && defined IS_LPV_ENABLED
     float swapperlinZ2(float depth, float _near, float _far) {
         return (2.0 * _near) / (_far + _near - depth * (_far - _near));
     }
 
-    float SSRT_Handlight_Shadows(vec3 viewPos, const bool depthCheck, vec3 lightDir, float noise, vec3 normals, bool hand){
+    float SSRT_Handlight_Shadows(vec3 viewPos, bool depthCheck, vec3 lightDir, float noise, vec3 normals, bool hand){
         
         if(hand) return 1.0;
 
@@ -51,11 +51,11 @@
 		
             #if defined DISTANT_HORIZONS || defined VOXY
                 if(depthCheck) {
-                    samplePos = texelFetch(dhVoxyDepthTex1, ivec2(newPos.xy/texelSize),0).x;
+                    samplePos = texelFetch2D(dhVoxyDepthTex1, ivec2(newPos.xy/texelSize),0).x;
                 } else
             #endif
                 {
-                    samplePos = texelFetch(depthtex2, ivec2(newPos.xy/texelSize),0).x;
+                    samplePos = texelFetch2D(depthtex2, ivec2(newPos.xy/texelSize),0).x,hand;
                 }
 
             if(samplePos < newPos.z && samplePos > 0.0){// && (samplePos <= max(minZ,maxZ) && samplePos >= min(minZ,maxZ))){
@@ -70,35 +70,26 @@
     }
 #endif
 
-#if (defined IS_LPV_ENABLED || defined PHOTONICS && defined PHOTONICS && !defined PH_ENABLE_HANDHELD_LIGHT) && !defined VOXY_PROGRAM
+#ifdef IS_LPV_ENABLED
     vec3 GetHandLight(const in int itemId, const in vec3 playerPos, inout float lightRange) {
         vec3 lightFinal = vec3(0.0);
+        vec3 lightColor = vec3(0.0);
 
-        uint blockData = imageLoad(imgBlockData, itemId).r;
-        vec4 lightColorRange = unpackUnorm4x8(blockData);
+        uvec2 blockData = texelFetch(texBlockData, itemId, 0).rg;
+        vec4 lightColorRange = unpackUnorm4x8(blockData.r);
+        lightColor = srgbToLinear(lightColorRange.rgb);
         lightRange = lightColorRange.a * 255.0;
 
         if (lightRange > 0.0) {
-            vec3 lightColor = srgbToLinear(lightColorRange.rgb);
             float lightDist = length(playerPos+relativeEyePosition);
             // vec3 lightDir = playerPos / lightDist;
-            const float NoL = 1.0;//max(dot(normal, lightDir), 0.0);
+            float NoL = 1.0;//max(dot(normal, lightDir), 0.0);
             float falloff = pow(1.0 - lightDist / lightRange, 3.0);
             lightFinal = lightColor * NoL * max(falloff, 0.0);
         }
 
         return lightFinal;
     }
-#endif
-
-#if defined PHOTONICS && !defined VOXY_PROGRAM && !defined PHOTONICS_INCLUDED && defined PHOTONICS_ACTIVE
-    uniform sampler2D radiosity_direct;
-    uniform sampler2D radiosity_direct_soft;
-    uniform sampler2D radiosity_handheld;
-#endif
-
-#ifdef BELTBORNE_LANTERNS
-uniform int IEXT_beltborne_lanterns_Id;
 #endif
 
 vec3 doBlockLightLighting(
@@ -119,17 +110,16 @@ vec3 doBlockLightLighting(
     float lightmapCurve = mix(lightmapLight, 2.5, lightmapBrightspot);
     vec3 blockLight = lightmapCurve * lightColor;
     
-    #if defined IS_LPV_ENABLED && defined MC_GL_ARB_shader_image_load_store && (!defined PHOTONICS_LIGHT_PASS || !defined PHOTONICS || !defined PH_ENABLE_BLOCKLIGHT || !defined PHOTONICS_ACTIVE) && !defined VOXY_PROGRAM
+    #if defined IS_LPV_ENABLED && defined MC_GL_ARB_shader_image_load_store
         vec4 lpvSample = SampleLpvLinear(lpvPos);
-
         #ifdef VANILLA_LIGHTMAP_MASK
             lpvSample.rgb *= lightmapCurve;
         #endif
         // vec3 lpvBlockLight = GetLpvBlockLight(lpvSample);
 
         // create a smooth falloff at the edges of the voxel volume.
-        const float fadeLength = 10.0; // in meters
-        vec3 cubicRadius = clamp(min(((LpvSize3-1.0) - lpvPos)/fadeLength, lpvPos/fadeLength), 0.0, 1.0);
+        float fadeLength = 10.0; // in meters
+        vec3 cubicRadius = clamp( min(((LpvSize3-1.0) - lpvPos)/fadeLength,      lpvPos/fadeLength) ,0.0,1.0);
         float voxelRangeFalloff = cubicRadius.x*cubicRadius.y*cubicRadius.z;
         voxelRangeFalloff = 1.0 - pow(1.0-pow(voxelRangeFalloff,1.5),3.0);
         
@@ -139,141 +129,29 @@ vec3 doBlockLightLighting(
         #ifdef Hand_Held_lights
             // create handheld lightsources
 
-            #if !defined PH_ENABLE_HANDHELD_LIGHT || !defined PHOTONICS_LIGHT_PASS
-                if (heldItemId > 0){
-                        float lightRange = 0.0;
-                        vec3 handLightCol = GetHandLight(heldItemId, playerPos, lightRange);
+            if (heldItemId > 0){
+                    float lightRange = 0.0;
+                    vec3 handLightCol = GetHandLight(heldItemId, playerPos, lightRange);
 
-                        #if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS
-                            if (lightRange > 0.0 && firstPersonCamera) handLightCol *=  SSRT_Handlight_Shadows(viewPos, depthCheck, -(viewPos + vec3(-0.25, 0.2, 0.0)), noise, normals, hand);
-                        #endif
-
-                        #ifdef WEATHER
-                            handLightCol *= 0.5;
-                        #endif
-
-                        blockLight += handLightCol;
-                }
-                
-
-                if (heldItemId2 > 0){
-                        float lightRange2 = 0.0;
-                        vec3 handLightCol2 = GetHandLight(heldItemId2, playerPos, lightRange2);
-                        
-                        #if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS
-                            if (lightRange2 > 0.0 && firstPersonCamera) handLightCol2 *= SSRT_Handlight_Shadows(viewPos, depthCheck, -(viewPos + vec3(0.25, 0.2, 0.0)), noise, normals, hand);
-                        #endif
-
-                        #ifdef WEATHER
-                            handLightCol2 *= 0.5;
-                        #endif
-
-                        blockLight += handLightCol2;
-                }
-
-                #ifdef BELTBORNE_LANTERNS
-                    if (IEXT_beltborne_lanterns_Id > 0){
-                            float lightRange2 = 0.0;
-                            vec3 handLightCol2 = GetHandLight(IEXT_beltborne_lanterns_Id, playerPos, lightRange2);
-                            
-                            #if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS
-                                if (lightRange2 > 0.0 && firstPersonCamera) handLightCol2 *= SSRT_Handlight_Shadows(viewPos, depthCheck, -(viewPos + vec3(0.125, 0.2, 0.0)), noise, normals, hand);
-                            #endif
-
-                            #ifdef WEATHER
-                                handLightCol2 *= 0.5;
-                            #endif
-
-                            blockLight += handLightCol2;
-                    }
-                #endif
-            #endif
-
-            #if defined PH_ENABLE_HANDHELD_LIGHT && !defined PH_ENABLE_BLOCKLIGHT && defined PHOTONICS_INCLUDED
-                vec3 ph_direct_hand = sample_photonics_handheld(gl_FragCoord.xy*texelSize/RENDER_SCALE).xyz;
-                blockLight += ph_direct_hand * 1.35;
-            #endif
-        #endif
-    #endif
-    
-    #if defined PHOTONICS && defined PH_ENABLE_BLOCKLIGHT && !defined WEATHER && defined PHOTONICS_LIGHT_PASS && !defined VOXY_PROGRAM && defined PHOTONICS_ACTIVE
-        #if defined DISTANT_HORIZONS || defined VOXY
-        if(!depthCheck)
-        #endif
-        {
-            vec3 photonicsLight = vec3(0.0);
-            vec3 handLight = vec3(0.0);
-
-            #if defined PH_ENABLE_HANDHELD_LIGHT
-                vec3 ph_direct_hand = sample_photonics_handheld(gl_FragCoord.xy*texelSize/RENDER_SCALE).xyz;
-                handLight = ph_direct_hand * 1.35;
-            #else
-                #ifdef Hand_Held_lights
-                    if (heldItemId > 0){
-                            float lightRange = 0.0;
-                            vec3 handLightCol = GetHandLight(heldItemId, playerPos, lightRange);
-
-                            #if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS
-                                if (lightRange > 0.0 && firstPersonCamera) handLightCol *=  SSRT_Handlight_Shadows(viewPos, depthCheck, -(viewPos + vec3(-0.25, 0.2, 0.0)), noise, normals, hand);
-                            #endif
-
-                            #ifdef WEATHER
-                                handLightCol *= 0.5;
-                            #endif
-
-                            handLight += handLightCol;
-                    }
-                    
-
-                    if (heldItemId2 > 0){
-                            float lightRange2 = 0.0;
-                            vec3 handLightCol2 = GetHandLight(heldItemId2, playerPos, lightRange2);
-                            
-                            #if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS
-                                if (lightRange2 > 0.0 && firstPersonCamera) handLightCol2 *= SSRT_Handlight_Shadows(viewPos, depthCheck, -(viewPos + vec3(0.25, 0.2, 0.0)), noise, normals, hand);
-                            #endif
-
-                            #ifdef WEATHER
-                                handLightCol2 *= 0.5;
-                            #endif
-
-                            handLight += handLightCol2;
-                    }
-
-                    #ifdef BELTBORNE_LANTERNS
-                        if (IEXT_beltborne_lanterns_Id > 0){
-                                float lightRange2 = 0.0;
-                                vec3 handLightCol3 = GetHandLight(IEXT_beltborne_lanterns_Id, playerPos, lightRange2);
-                                
-                                #if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS
-                                    if (lightRange2 > 0.0 && firstPersonCamera) handLightCol3 *= SSRT_Handlight_Shadows(viewPos, depthCheck, -(viewPos + vec3(0.125, 0.2, 0.0)), noise, normals, hand);
-                                #endif
-
-                                #ifdef WEATHER
-                                    handLightCol3 *= 0.5;
-                                #endif
-
-                                handLight += handLightCol3;
-                        }
+                    #if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS
+                        if (lightRange > 0.0 && firstPersonCamera) handLightCol *=  SSRT_Handlight_Shadows(viewPos, depthCheck, -(viewPos + vec3(-0.25, 0.2, 0.0)), noise, normals, hand);
                     #endif
-                #endif
-            #endif
 
-            #ifdef PH_ENABLE_BLOCKLIGHT
-                vec3 ph_direct = sample_photonics_direct(gl_FragCoord.xy*texelSize/RENDER_SCALE).xyz;
-                photonicsLight += ph_direct;
-                photonicsLight += lightColor * 2.5 * min(max(lightmap-0.999,0.0)/(1.0-0.999),1.0);
-            #endif
-
-            #if defined DISTANT_HORIZONS || defined VOXY
-				float photonicsFalloff = smoothstep(min(far, 256.0), min(0.9*far, 230.0), length(playerPos));
-			#else
-				float photonicsFalloff = smoothstep(256.0, 230.0, length(playerPos));
-			#endif
-
+                    blockLight += handLightCol;
+            }
             
-            blockLight = mix(blockLight, photonicsLight+handLight, photonicsFalloff);
-        }
+
+            if (heldItemId2 > 0){
+                    float lightRange2 = 0.0;
+                    vec3 handLightCol2 = GetHandLight(heldItemId2, playerPos, lightRange2);
+                    
+                    #if defined MAIN_SHADOW_PASS && defined LPV_HANDHELD_SHADOWS
+                        if (lightRange2 > 0.0 && firstPersonCamera) handLightCol2 *= SSRT_Handlight_Shadows(viewPos, depthCheck, -(viewPos + vec3(0.25, 0.2, 0.0)), noise, normals, hand);
+                    #endif
+
+                    blockLight += handLightCol2;
+            }
+        #endif
     #endif
 
     return blockLight * TORCH_AMOUNT;
@@ -295,16 +173,17 @@ vec3 doIndirectLighting(
     return indirectLight;
 }
 
-#ifndef VOXY_PROGRAM
 uniform float centerDepthSmooth;
-#ifdef IEXT_ENABLED
-uniform bool IEXT_KEY_0;
+
+#if defined VIVECRAFT
+	uniform bool vivecraftIsVR;
+	uniform vec3 vivecraftRelativeMainHandPos;
+	uniform vec3 vivecraftRelativeOffHandPos;
+	uniform mat4 vivecraftRelativeMainHandRot;
+	uniform mat4 vivecraftRelativeOffHandRot;
 #endif
 
 vec3 calculateFlashlight(in vec2 texcoord, in vec3 viewPos, in vec3 albedo, in vec3 normal, out vec4 flashLightSpecularData, bool hand){
-    #ifdef IEXT_ENABLED
-    if(!IEXT_KEY_0) return vec3(0.0);
-    #endif
 
 	// vec3 shiftedViewPos = viewPos + vec3(-0.25, 0.2, 0.0);
 	// vec3 shiftedPlayerPos = mat3(gbufferModelViewInverse) * shiftedViewPos + gbufferModelViewInverse[3].xyz + (cameraPosition - previousCameraPosition) * 3.0;
@@ -342,7 +221,7 @@ vec3 calculateFlashlight(in vec2 texcoord, in vec3 viewPos, in vec3 albedo, in v
 	#endif
 
 	float projectedCircle = clamp(1.0 - shiftedLinearDistance*FLASHLIGHT_SIZE,0.0,1.0);
-	float lenseDirt = texture(noisetex, scaledViewPos * 0.2 + 0.1).b;
+	float lenseDirt = texture2D(noisetex, scaledViewPos * 0.2 + 0.1).b;
 	float lenseShape = (pow(abs(pow(abs(projectedCircle-1.0),2.0)*2.0 - 0.5),2.0) + lenseDirt*0.2) * 10.0;
 	
 	float offsetNdotL = clamp(dot(-normal, normalize(shiftedPlayerPos)),0,1);
@@ -366,4 +245,3 @@ vec3 calculateFlashlight(in vec2 texcoord, in vec3 viewPos, in vec3 albedo, in v
 
 	return flashlightDiffuse * vec3(FLASHLIGHT_R,FLASHLIGHT_G,FLASHLIGHT_B);
 }
-#endif

@@ -1,6 +1,6 @@
 option.SHADER_VERSION_LABEL = §d§lECLIPSE§r - Bliss 编辑版
     prefix.SHADER_VERSION_LABEL = 版本
-    value.SHADER_VERSION_LABEL.482 = 8.0.4
+    value.SHADER_VERSION_LABEL.482 = 5.9.2
 
 # 如果你是来翻译的，这不是玩笑，这些选项的功能正如其名
 profile.POTATO=§4土豆 (极低配置)
@@ -17,9 +17,9 @@ profile.ULTRA=§d极致
 
 option.OLD_LIGHTLEAK_FIX = 旧版漏光修复
 option.CAVE_DETECTION = 洞穴检测
-    value.CAVE_DETECTION.0 = 开启
-    value.CAVE_DETECTION.1 = Y < 62.0
-    value.CAVE_DETECTION.2 = 关闭
+    value.CAVE_DETECTION.0.0 = 开启
+    value.CAVE_DETECTION.1.0 = Y < 62.0
+    value.CAVE_DETECTION.2.0 = 关闭
 option.sunPathRotation = 太阳角度
 suffix.sunPathRotation = °
 option.sun_illuminance = 太阳亮度
@@ -105,7 +105,8 @@ option.WATER_CAUSTICS_BRIGHTNESS = 水体焦散线亮度
 option.WATER_CAUSTICS_POWER = 水体焦散线强度
 option.FORCE_TRANSLUCENT_GLASS = 强制半透明玻璃
 option.LARGE_WAVE_DISPLACEMENT = 大型波浪
-option.VANILLA_LIKE_WATER = 原版水体样式
+option.Vanilla_like_water = 原版水体样式
+option.INCLUDE_UNLISTED_ENTITIES = 识别未添加实体
 
 screen.DEBUG_STUFF = §c调试设置§r
 screen.LEGACY_STUFF = 旧版设置
@@ -136,7 +137,7 @@ screen.Foliage = 植被
     option.WAVY_STRENGTH = 摆动强度
     option.WAVY_SPEED = 摆动速度
 
-    option.SHADER_GRASS_SETTING = 着色器草 §c(Iris 1.7+)
+    option.SHADER_GRASS = 着色器草 §c(Iris 1.7+)
     option.GRASS_BASE_THICKNESS = 草叶基础厚度
     option.GRASS_THICKNESS_FALLOFF = 草厚度衰减
         option.GRASS_THICKNESS_FALLOFF.comment = 控制每片草叶变窄的速度。1.0 时，它将保持相同厚度直到叶尖
@@ -875,11 +876,11 @@ screen.Resource_Pack_Support = 材质 / 资源包支持
     screen.Emissives = 自发光 / 发光纹理
         option.Emissive_Brightness = 自发光亮度
         option.Emissive_Curve = 发光曲线
-        option.EMISSIVE_TYPE_SETTING = 模式
-            value.EMISSIVE_TYPE_SETTING.0 = 无发光
-            value.EMISSIVE_TYPE_SETTING.1 = 仅硬编码
-            value.EMISSIVE_TYPE_SETTING.2 = 硬编码 + Lab 发光
-            value.EMISSIVE_TYPE_SETTING.3 = 仅 Lab 发光
+        option.EMISSIVE_TYPE = 模式
+            value.EMISSIVE_TYPE.0 = 无发光
+            value.EMISSIVE_TYPE.1 = 仅硬编码
+            value.EMISSIVE_TYPE.2 = 硬编码 + Lab 发光
+            value.EMISSIVE_TYPE.3 = 仅 Lab 发光
 
 
 screen.POM = 视差遮蔽映射 / POM
@@ -898,11 +899,11 @@ screen.Subsurface_Scattering = 次表面散射
     option.MOB_SSS = 生物的次表面散射
     option.Ambient_SSS = 来自天空的次表面散射
     option.ambientsss_brightness = 天空次表面散射亮度
-    option.SSS_TYPE_SETTING = 模式
-        value.SSS_TYPE_SETTING.0 = 无
-        value.SSS_TYPE_SETTING.1 = 仅硬编码
-        value.SSS_TYPE_SETTING.2 = 硬编码 + Lab次表面散射
-        value.SSS_TYPE_SETTING.3 = 仅 Lab次表面散射
+    option.SSS_TYPE = 模式
+        value.SSS_TYPE.0 = 无
+        value.SSS_TYPE.1 = 仅硬编码
+        value.SSS_TYPE.2 = 硬编码 + Lab次表面散射
+        value.SSS_TYPE.3 = 仅 Lab次表面散射
     option.sss_density_multiplier = 次表面散射密度
     option.sss_absorbance_multiplier = 次表面散射吸收
     option.SCREENSPACE_DIRECT_SSS_BLENDING = 屏幕空间次表面散射混合
@@ -1074,7 +1075,7 @@ screen.Resource_Pack_Support.comment = 一些使用资源包提供信息的特�
         
 
 screen.Subsurface_Scattering.comment = §b这是什么？§r 次表面散射是当您将强光放在手上时，它开始发光的情况。太阳实际上对植物、布料、皮肤和其他东西也有同样的效果。
-    option.SSS_TYPE_SETTING.comment = 配置次表面散射如何应用于世界。  §b硬编码：§r 着色器决定什么获得它。 §bLabSSS：§r 资源包决定什么获得它。 §a性能消耗：§r 非常低
+    option.SSS_TYPE.comment = 配置次表面散射如何应用于世界。  §b硬编码：§r 着色器决定什么获得它。 §bLabSSS：§r 资源包决定什么获得它。 §a性能消耗：§r 非常低
     option.MOB_SSS.comment = 为生物切换次表面散射。包括玩家。 §a性能消耗：§r 非常低
     option.MISC_BLOCK_SSS.comment = 为可能不适合的随机方块切换次表面散射。这主要用于草和沙。 §a性能消耗：§r 非常低
     option.Ambient_SSS.comment = §b这是什么？§r 来自天空的光线而不是太阳的次表面散射。 §a性能消耗：§r 非常低到中；如果启用了 SSAO，则成本非常低，但如果 SSAO 关闭则成本更高
@@ -1082,7 +1083,7 @@ screen.Subsurface_Scattering.comment = §b这是什么？§r 次表面散射是�
 
 screen.Emissives.comment = §b这是什么？§r 自发光就是某物发出多少光，或者某物发光的程度。
     option.Emissive_Brightness.comment = 配置纹理发光的亮度。
-    option.EMISSIVE_TYPE_SETTING.comment = 配置纹理发光如何应用于世界。  §b硬编码：§r 着色器决定什么获得它。 §bLabSSS：§r 资源包决定什么获得它。 §a性能消耗：§r 非常低
+    option.EMISSIVE_TYPE.comment = 配置纹理发光如何应用于世界。  §b硬编码：§r 着色器决定什么获得它。 §bLabSSS：§r 资源包决定什么获得它。 §a性能消耗：§r 非常低
     option.Emissive_Curve.comment = 这决定了发光纹理达到其最亮点的速度。1.0 是线性的。
 
 screen.POM.comment = 配置使用资源包提供信息的视差遮蔽映射相关的设置。

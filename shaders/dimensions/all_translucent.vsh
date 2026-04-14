@@ -5,7 +5,6 @@
 
 #include "/lib/SSBOs.glsl"
 
-#include "/lib/blocks.glsl"
 #include "/lib/entities.glsl"
 
 uniform float frameTimeCounter;
@@ -22,55 +21,46 @@ Read the terms of modification and sharing before changing something below pleas
 !! DO NOT REMOVE !!
 */
 
-out DATA {
-	vec4 lmtexcoord;
-	#if defined LIGHTNING || defined ENTITIES
-		vec4 color;
-	#else
-		vec3 color;
-	#endif
+varying vec4 lmtexcoord;
+varying vec4 color;
 
-	vec3 viewVector;
-
-	vec4 normalMat;
-	vec4 tangent;
-
-	#if defined IRIS_FEATURE_FADE_VARIABLE && VANILLA_CHUNK_FADING > 0 && !defined HAND
-		float chunkFade;
-	#endif
-
-	#ifdef OVERWORLD_SHADER
-		flat vec3 WsunVec;
-	#endif
-
-	#if defined ENTITIES && defined IS_IRIS
-		flat int NAMETAG;
-	#endif
-
-	#ifdef LARGE_WAVE_DISPLACEMENT
-		vec3 largeWaveDisplacementNormal;
-	#endif
-
-	#ifdef LIGHTNING
-		float LIGHTNING_BOLT;
-	#endif
-};
+#if defined IRIS_FEATURE_FADE_VARIABLE && VANILLA_CHUNK_FADING > 0 && !defined HAND
+varying float chunkFade;
+#endif
 
 uniform sampler2D colortex4;
 uniform sampler2D noisetex;
 
 #ifdef OVERWORLD_SHADER
+	flat varying vec3 WsunVec;
+
 	#include "/lib/scene_controller.glsl"
+#endif
+
+varying vec4 normalMat;
+varying vec3 binormal;
+varying vec4 tangent;
+varying vec3 flatnormal;
+
+#ifdef LARGE_WAVE_DISPLACEMENT
+varying vec3 largeWaveDisplacementNormal;
 #endif
 
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 gbufferModelView;
+varying vec3 viewVector;
 
-in vec4 at_tangent;
-in vec4 mc_Entity;
+#if defined ENTITIES && defined IS_IRIS
+	flat varying int NAMETAG;
+#endif
+
+attribute vec4 at_tangent;
+attribute vec4 mc_Entity;
 #if defined ENTITIES || defined BLOCKENTITIES
 	uniform int entityId;
 #endif
+
+varying float LIGHTNING_BOLT;
 
 uniform vec3 sunPosition;
 uniform vec3 moonPosition;
@@ -100,8 +90,8 @@ vec4 toClipSpace3(vec3 viewSpacePosition) {
 
 
 float getWave (vec3 pos, float range){
-	// return pow(1.0-texture(noisetex, (pos.xz + frameTimeCounter * WATER_WAVE_SPEED)/150.0).b,2.0) * WATER_WAVE_STRENGTH * range;
-	return pow(1.0-texture(noisetex, (pos.xz + frameTimeCounter * WATER_WAVE_SPEED)/125.0).r,5.0) * min(WATER_WAVE_STRENGTH, 1.0) * range;
+	// return pow(1.0-texture2D(noisetex, (pos.xz + frameTimeCounter * WATER_WAVE_SPEED)/150.0).b,2.0) * WATER_WAVE_STRENGTH * range;
+	return pow(1.0-texture2D(noisetex, (pos.xz + frameTimeCounter * WATER_WAVE_SPEED)/125.0).r,5.0) * min(WATER_WAVE_STRENGTH, 1.0) * range;
 }
 
 vec3 getWaveNormal(vec3 posxz, float range){
@@ -137,10 +127,9 @@ vec3 getWaveNormal(vec3 posxz, float range){
 void main() {
 
 	gl_Position = ftransform();
-
-	color.rgb = gl_Color.rgb;
-	#if defined LIGHTNING || defined ENTITIES
-		color.a = gl_Color.a;
+	#if defined ENTITIES && defined IS_IRIS
+		// force out of frustum
+		if (entityId == 1599) gl_Position.z -= 10000.0;
 	#endif
 
 	bool isWater = mc_Entity.x == 8.0;
@@ -186,25 +175,23 @@ void main() {
 		chunkFade = abs(mc_chunkFade);
 	#endif
 	
-	// keep this OUT of the #if block... otherwise there will be z-fighting when using some overlay textures for some random ass reason.....
-	vec3 worldpos = mat3(gbufferModelViewInverse) * position + gbufferModelViewInverse[3].xyz;
+	#if defined PLANET_CURVATURE || (defined IRIS_FEATURE_FADE_VARIABLE && VANILLA_CHUNK_FADING > 1 && !defined HAND)
+		vec3 worldpos = mat3(gbufferModelViewInverse) * position + gbufferModelViewInverse[3].xyz;
 
-	#if defined IRIS_FEATURE_FADE_VARIABLE && VANILLA_CHUNK_FADING > 1 && !defined HAND
-		worldpos.y += -45.0*(1.0-chunkFade)*(1.0-caveDetection)*smoothstep(25.0, far, length(worldpos));
+		#if defined IRIS_FEATURE_FADE_VARIABLE && VANILLA_CHUNK_FADING > 1 && !defined HAND
+			worldpos.y += -45.0*(1.0-chunkFade)*(1.0-caveDetection)*smoothstep(25.0, far, length(worldpos));
+		#endif
+
+		#ifdef PLANET_CURVATURE
+			float curvature = length(worldpos) / (16*8);
+			worldpos.y -= curvature*curvature * CURVATURE_AMOUNT;
+		#endif
+
+		position = mat3(gbufferModelView) * worldpos + gbufferModelView[3].xyz;
 	#endif
-
-	#ifdef PLANET_CURVATURE
-		float curvature = length(worldpos.xz) / (16.0*8.0);
-		worldpos.y -= curvature*curvature * CURVATURE_AMOUNT;
-	#endif
-
-	position = mat3(gbufferModelView) * worldpos + gbufferModelView[3].xyz;
 	
- 	gl_Position = toClipSpace3(position);
-
-	#if defined ENTITIES && defined IS_IRIS
-		// force out of frustum
-		if (entityId == 1599) gl_Position.z -= 10000.0;
+	#if !defined ENTITIES && !defined HAND
+ 		gl_Position = toClipSpace3(position);
 	#endif
 	
 	// 1.0 = water mask
@@ -215,27 +202,22 @@ void main() {
 	float mat = 0.0;
 
 	// water mask
-	if(isWater
-	#if MC_VERSION > 12111
-	 || mc_Entity.x == 505
-	#endif
-	 
-	 ) {
+	if(isWater) {
     	mat = 1.0;
   	}
 
 	// translucent entities
 	#if defined ENTITIES || defined BLOCKENTITIES
-		mat = 0.4;
-		if (entityId == 1804) mat = 0.2;
+		mat = 0.9;
+		if (entityId == 1804) mat = 0.8;
 	#endif
 
 	// translucent blocks
-	if (mc_Entity.x >= 301 && mc_Entity.x <= 338) mat = 0.1;
+	if (mc_Entity.x >= 301 && mc_Entity.x <= 321) mat = 0.7;
 
-	// if (mc_Entity.x == BLOCK_NETHER_PORTAL) mat = 0.6;
+	if (mc_Entity.x == 320) mat = 0.6;
 
-	if (mc_Entity.x == WISPJELLY) lmtexcoord.z = 0.0;
+	if (mc_Entity.x == 322) lmtexcoord.z = 0.0;
 
 	#if defined ENTITIES && defined IS_IRIS
 		NAMETAG = 0;
@@ -246,7 +228,7 @@ void main() {
 
 	tangent = vec4(normalize(gl_NormalMatrix * at_tangent.rgb),at_tangent.w);
 	normalMat = vec4(normalize(gl_NormalMatrix * gl_Normal), mat);
-	vec3 binormal = normalize(cross(tangent.rgb,normalMat.xyz)*at_tangent.w);
+	binormal = normalize(cross(tangent.rgb,normalMat.xyz)*at_tangent.w);
 	mat3 tbnMatrix = mat3(tangent.x, binormal.x, normalMat.x,
 						  tangent.y, binormal.y, normalMat.y,
 						  tangent.z, binormal.z, normalMat.z);
@@ -258,9 +240,15 @@ void main() {
 			largeWaveDisplacementNormal = normalMat.xyz;
 		}
 	#endif
+	flatnormal = normalMat.xyz;
 
 	viewVector = position.xyz;
 	if(isWater) viewVector = normalize(tbnMatrix * viewVector);
+
+	color = vec4(gl_Color.rgb, 1.0);
+	#ifdef LIGHTNING
+		color.a = gl_Color.a;
+	#endif
 
 	#ifdef OVERWORLD_SHADER		
 		// WsunVec = lightCol.a * normalize(mat3(gbufferModelViewInverse) * sunPosition);
@@ -286,8 +274,8 @@ void main() {
 		WsunVec = mix(WmoonVec, WsunVec, clamp(float(sunElevation > 1e-5)*2.0 - 1.0,0,1));
 	#endif
 
+	LIGHTNING_BOLT = 0.0;
 	#ifdef LIGHTNING
-		LIGHTNING_BOLT = 0.0;
 		normalMat.a = 0.5;
 		if(entityId == ENTITY_LIGHTNING){
 			LIGHTNING_BOLT = 1.0;

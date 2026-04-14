@@ -4,9 +4,9 @@
         #include "/lib/res_params.glsl"
     ",
     "version": 1,
-    "opaqueDrawBuffers": [1, 8],
+    "opaqueDrawBuffers": [1, 8, 15],
     "excludeLodsFromVanillaDepth": true,
-    "translucentDrawBuffers": [16, 7, 11, 14],
+    "translucentDrawBuffers": [2, 7, 14, 18, 19],
     #ifdef TAA
     "taaOffset": "{ 
     const vec2[4] offsets = vec2[4](
@@ -21,13 +21,9 @@
     #ifdef TAA_UPSCALING 
     "renderScale": [SCALE_FACTOR, SCALE_FACTOR],
     #endif
-    "blending": {-1:"SRC_ALPHA ONE_MINUS_SRC_ALPHA ONE_MINUS_DST_ALPHA ONE", 2:"off"},
-    "ssbos": {4:"{
+    "blending": {-1:"SRC_ALPHA ONE_MINUS_SRC_ALPHA ONE_MINUS_DST_ALPHA ONE", 3:"off", 4:"off"},
+    "ssbos": {0:"{
         mat4 customShadowMatrixSSBO;
-
-        #ifdef PHOTONICS
-        mat4 customShadowMatrixInverseSSBO;
-        #endif
 
         vec3 customMoonVecSSBO;
 
@@ -37,19 +33,19 @@
 
         vec3 customSunVecSSBO;
 
-        #if IRIS_VERSION < 11004
         bool onWaterSurface;
+
+        bool inBoat;
 
         bool inBoatCurrentFrame;
 
         bool inBoatLastFrame;
 
+        bool inShip;
+
         bool inShipCurrentFrame;
 
         bool inShipLastFrame;
-        #endif
-
-        float waterRoundSize;
 
         float lastFrameTimeCount;
 
@@ -100,8 +96,6 @@
     }"},
     "useViewportDims": true,
     "uniforms": [
-        "nightVision",
-        "cloudTime",
         "noPuddleAreas",
         "dhVoxyRenderDistance",
         "worldDay",
@@ -152,6 +146,9 @@
         "noisetex",
         "colortex4",
         "colortex5",
+        "colortex7",
+        "colortex8",
+        "colortex12",
         "depthtex0",
         "depthtex1"
     ]

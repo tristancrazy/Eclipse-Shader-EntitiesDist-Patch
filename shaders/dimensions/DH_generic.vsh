@@ -1,10 +1,8 @@
 #include "/lib/settings.glsl"
 #include "/lib/res_params.glsl"
 
-out DATA {
-	vec4 pos;
-	vec4 gcolor;
-};
+varying vec4 pos;
+varying vec4 gcolor;
 
 uniform vec2 texelSize;
 uniform int framemod8;

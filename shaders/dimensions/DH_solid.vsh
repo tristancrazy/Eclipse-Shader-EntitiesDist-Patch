@@ -1,17 +1,15 @@
 #include "/lib/settings.glsl"
 #include "/lib/res_params.glsl"
 
-out DATA {
-    vec4 localPos;
-    vec4 vPos;
-    vec4 gcolor;
-    vec2 lightmapCoords;
-    vec4 normalMat;
-    flat float SSSAMOUNT;
-    flat float EMISSIVE;
-    flat int dh_material_id;
-};
-
+varying vec4 pos;
+varying vec4 localPos;
+varying vec4 vPos;
+varying vec4 gcolor;
+varying vec2 lightmapCoords;
+varying vec4 normals_and_materials;
+flat varying float SSSAMOUNT;
+flat varying float EMISSIVE;
+flat varying int dh_material_id;
 uniform float nightVision;
 
 uniform vec2 texelSize;
@@ -72,7 +70,7 @@ void main() {
 	#ifdef PLANET_CURVATURE
 		vec4 worldPos = localPos;
 
-		float curvature = length(worldPos.xz) / (16*8);
+		float curvature = length(worldPos) / (16*8);
 		worldPos.y -= curvature*curvature * CURVATURE_AMOUNT;
 
 		worldPos = gbufferModelView * worldPos;
@@ -111,7 +109,7 @@ void main() {
 	// a mask for DH terrain in general.
 	float MATERIALS = 0.65;
 
-	normalMat = vec4(normalize(gl_NormalMatrix * gl_Normal), MATERIALS);
+	normals_and_materials = vec4(normalize(gl_NormalMatrix * gl_Normal), MATERIALS);
 	dh_material_id = dhMaterialId;
 
 	#if defined Seasons && defined OVERWORLD_SHADER

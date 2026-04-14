@@ -10,14 +10,13 @@ uniform int worldDay;
 uniform int worldTime;
 uniform float moonElevation;
 uniform float worldTimeSmooth;
-uniform float cloudTime;
 #endif
 
 
 #if CLOUD_MOVEMENT_TYPE == 0
 	float cloud_movement = (worldTimeSmooth  + mod(worldDay,100)*24000.0) / 24.0 * Cloud_Speed;
 #else
-	float cloud_movement = cloudTime * Cloud_Speed;
+	float cloud_movement = frameTimeCounter * Cloud_Speed;
 #endif
 
 float lightningFlashTimer = floor(frameTimeCounter * 11.0);
@@ -36,6 +35,15 @@ float lightningFlash = mix(0.1, 2.5, randomSeed);
 #endif
 
 #if defined CUMULONIMBUS_LIGHTNING && CUMULONIMBUS > 0
+	#if !defined COLORWHEEL && !defined VOXY_PROGRAM
+		#extension GL_NV_gpu_shader5 : enable
+		#extension GL_ARB_shader_image_load_store : enable
+	#endif
+
+	#ifndef VOXY_PROGRAM
+	layout (rgba16f) uniform image2D cloudDepthTex;
+	#endif
+
 	float lightningStart = mix(20.0, 1.0, smoothstep(0.0, 0.085, timeInLightning));
 	float lightningMid = smoothstep(0.0, 0.05, timeInLightning) * smoothstep(0.15, 0.066, timeInLightning);
 #endif
@@ -295,7 +303,7 @@ vec2 getCumulonimbusShape(int LOD, in vec3 position, float minHeight, float maxH
 	float posToMax = maxHeight - position.y;
 
 	float cumulonimbusScale = 1.0;
-	//largeCloud = texture(noisetex, (samplePos.zx - cloud_movement*6.0) / 17000.0 * cumulonimbusScale * 0.2).b;
+	//largeCloud = texture2D(noisetex, (samplePos.zx - cloud_movement*6.0) / 17000.0 * cumulonimbusScale * 0.2).b;
 	
 	//largeCloud = abs(largeCloud* -8.0);
 
@@ -842,14 +850,14 @@ vec4 raymarchCloud(
 							shadowPos = shadowPos*vec3(0.5,0.5,0.5/6.0)+0.5;
 
 							#ifdef TRANSLUCENT_COLORED_SHADOWS
-								sh = vec3(texture(shadowtex0HW, shadowPos).x);
+								sh = vec3(shadow2D(shadowtex0, shadowPos).x);
 
-								if(texture(shadowtex1HW, shadowPos).x > shadowPos.z && sh.x < 1.0){
+								if(shadow2D(shadowtex1, shadowPos).x > shadowPos.z && sh.x < 1.0){
 									vec4 translucentShadow = texture(shadowcolor0, shadowPos.xy);
 									if(translucentShadow.a < 0.9) sh = normalize(translucentShadow.rgb+0.0001);
 								}
 							#else
-								sh = vec3(texture(shadowtex0HW, shadowPos).x);
+								sh = vec3(shadow2D(shadow, shadowPos).x);
 							#endif
 						}
 					#else
@@ -902,7 +910,7 @@ vec4 raymarchCloud(
 					// normal lightning strikes
 					float horizontalDist = length((newPos.xz) - lightningBoltPosition.xz);
 					if (horizontalDist < 7500.0 && lightningBoltPosition.w > 0.0) {
-						lightningIntensity = exp(-horizontalDist * 0.006) * density * lightningFlash;
+						lightningIntensity = exp(-horizontalDist * 0.006) * density * smoothstep(0.0, 0.02, fract(frameTimeCounter)) * lightningFlash;
 						lighting = mix(lighting, vec3(1.3,1.5,3.0), lightningIntensity);
 					}
 

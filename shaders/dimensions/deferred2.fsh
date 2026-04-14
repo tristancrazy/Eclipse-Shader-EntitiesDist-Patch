@@ -12,8 +12,7 @@ uniform sampler2D depthtex0;
 #endif
 uniform sampler2D colortex1;
 uniform sampler2D colortex2;
-uniform sampler2D colortex9;
-uniform sampler2D colortex16;
+uniform vec2 texelSize;
 
 
 float interleaved_gradientNoise(){
@@ -30,55 +29,35 @@ float interleaved_gradientNoise(){
 //////////////////////////////VOID MAIN//////////////////////////////
 
 	#if RESOURCEPACK_SKY != 0
-	/* RENDERTARGETS:2,1,9 */
-	#elif defined VOXY
-	/* RENDERTARGETS:2 */
+	/* RENDERTARGETS:1,2 */
 	#endif
 
 
 void main() {
-	bool depthCheck = texelFetch(depthtex0, ivec2(gl_FragCoord.xy), 0).x < 1.0;
 	#if RESOURCEPACK_SKY != 0
-		gl_FragData[1] = texelFetch(colortex1, ivec2(gl_FragCoord.xy),0);
+		vec2 texcoord = gl_FragCoord.xy * texelSize;
+
+		gl_FragData[0] = texelFetch2D(colortex1, ivec2(gl_FragCoord.xy),0);
 
 		if(
-			depthCheck
+			texelFetch2D(depthtex0, ivec2(gl_FragCoord.xy), 0).x < 1.0 
 			
 			#if defined DISTANT_HORIZONS || defined VOXY
-				|| texelFetch(dhVoxyDepthTex, ivec2(gl_FragCoord.xy), 0).x < 1.0
+				|| texelFetch2D(dhVoxyDepthTex, ivec2(gl_FragCoord.xy), 0).x < 1.0
 			#endif
 
 		) {
 			// doing this for precision reasons, DH does NOT like depth => 1.0
 		}else{
 			
-			vec4 skyColor = texelFetch(colortex9, ivec2(gl_FragCoord.xy),0);
-			skyColor.rgb *= skyColor.a * 10.0;
-
+			vec3 skyColor = texelFetch2D(colortex2, ivec2(gl_FragCoord.xy),0).rgb;
 			skyColor.rgb = max(skyColor.rgb - skyColor.rgb * interleaved_gradientNoise()*0.05, 0.0);
 
-			gl_FragData[1].rgb = skyColor.rgb/5.0;
-			gl_FragData[1].a = 0.0;
+			gl_FragData[0].rgb = skyColor/50.0;
+			gl_FragData[0].a = 0.0;
 
 		}
 
-		gl_FragData[2] = vec4(0.0);
+		gl_FragData[1] = vec4(0,0,0,0);
 	#endif
-	
-	#ifdef VOXY
-		if(depthCheck) {
-	#endif
-
-	#if RESOURCEPACK_SKY != 0
-		gl_FragData[0] = vec4(0.0);
-	#else
-		gl_FragData[0] = texelFetch(colortex2, ivec2(gl_FragCoord.xy), 0);
-	#endif
-
-	#ifdef VOXY
-		} else {
-			gl_FragData[0] = texelFetch(colortex16, ivec2(gl_FragCoord.xy), 0);
-		}
-	#endif
-
 }

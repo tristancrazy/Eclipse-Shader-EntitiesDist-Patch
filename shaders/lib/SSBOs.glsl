@@ -1,9 +1,5 @@
-layout(std430, binding = 4) buffer SSBO1 {
+layout(binding = 0) buffer SSBO1 {
     mat4 customShadowMatrixSSBO; // 64 bytes
-
-    #ifdef PHOTONICS
-    mat4 customShadowMatrixInverseSSBO;
-    #endif
 
     vec3 customMoonVecSSBO; // 12 bytes
 
@@ -13,19 +9,19 @@ layout(std430, binding = 4) buffer SSBO1 {
 
     vec3 customSunVecSSBO; // 12 bytes
 
-    #if IRIS_VERSION < 11004
     bool onWaterSurface; // 1 byte
+
+    bool inBoat; // 1 byte
 
     bool inBoatCurrentFrame; // 1 byte
 
     bool inBoatLastFrame; // 1 byte
 
+    bool inShip; // 1 byte
+
     bool inShipCurrentFrame; // 1 byte
 
     bool inShipLastFrame; // 1 byte
-    #endif
-
-    float waterRoundSize;
 
     float lastFrameTimeCount; // 4 bytes
 

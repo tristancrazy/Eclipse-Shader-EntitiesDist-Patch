@@ -4,17 +4,13 @@ layout (location = 0) out vec4 gbuffer_data_0;
 layout (location = 1) out vec4 gbuffer_data_1;
 layout (location = 2) out vec4 gbuffer_data_2;
 layout (location = 3) out vec4 gbuffer_data_3;
+layout (location = 4) out vec4 gbuffer_data_4;
 
 #include "/lib/settings.glsl"
 #include "/lib/blocks.glsl"
 #include "/lib/waterBump.glsl"
 #include "/lib/res_params.glsl"
 #include "/lib/TAA_jitter.glsl"
-
-#undef Hand_Held_lights
-#undef PHOTONICS
-#undef IS_LPV_ENABLED
-#include "/lib/diffuse_lighting.glsl"
 
 #ifdef OVERWORLD_SHADER
 	#include "/lib/scene_controller.glsl"
@@ -127,7 +123,7 @@ float DH_ld(float dist) {
 
 vec3 rayTrace(vec3 dir, vec3 position, float dither, float fresnel) {
 
-	const float biasAmount = 0.00015;
+	const float biasAmount = 0.000015;
 
     float quality = float(FORWARD_SSR_QUALITY);
     vec3 clipPosition = DH_toClipSpace3(position);
@@ -152,19 +148,15 @@ vec3 rayTrace(vec3 dir, vec3 position, float dither, float fresnel) {
     float maxZ = spos.z;
     
     for (int i = 0; i <= int(quality); i++) {
-		#if FORWARD_SSR_QUALITY != 1
+		#if DEFERRED_SSR_QUALITY != 1
 			if(spos.x < 0 || spos.x > 1 || spos.y < 0 || spos.y > 1) return vec3(1.1);
 		#endif
 
-		float vanillaDepth = texelFetch(depthtex0, ivec2(spos.xy / texelSize), 0).r;
-		
-		if(vanillaDepth >= 1.0) {
-			float sp = texelFetch(vxDepthTexOpaque, ivec2(spos.xy / texelSize), 0).r;
-			
-			if (sp < max(minZ, maxZ) && sp > min(minZ, maxZ)) {
-				return vec3(spos.xy / RENDER_SCALE, sp);
-			}
-		}
+        float sp = texelFetch(vxDepthTexOpaque, ivec2(spos.xy / texelSize), 0).r;
+        
+        if (sp < max(minZ, maxZ) && sp > min(minZ, maxZ)) {
+            return vec3(spos.xy / RENDER_SCALE, sp);
+        }
         
 		minZ = maxZ - biasAmount / DH_ld(spos.z);
         maxZ += stepv.z;
@@ -181,6 +173,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 	vec3 feetPlayerPos = mat3(vxModelViewInv) * viewPos + vxModelViewInv[3].xyz;;
     
     gbuffer_data_0 = parameters.sampledColour * parameters.tinting;
+    gbuffer_data_4 = vec4(0.0);
 
     vec3 Albedo = toLinear(gbuffer_data_0.rgb);
 	float UnchangedAlpha = gbuffer_data_0.a;
@@ -189,7 +182,7 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
     bool isWater = blockID == 8;
 
     #ifndef WhiteWorld
-		#ifdef VANILLA_LIKE_WATER
+		#ifdef Vanilla_like_water
 			if (isWater) Albedo *= luma(Albedo);
 		#else
 			if (isWater){
@@ -258,19 +251,11 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 		vec3 AmbientLightColor = vec3(0.5);
 	#endif
 
-    vec3 MinimumLightColor = vec3(1.0);
-	Indirect_lighting = doIndirectLighting(AmbientLightColor, MinimumLightColor, parameters.lightMap.y);
-
-
+    Indirect_lighting = AmbientLightColor;
 	float indoors = min(max(parameters.lightMap.y-0.5,0.0)/0.4,1.0);
-
-	vec3 lightColor = vec3(TORCH_R,TORCH_G,TORCH_B);
-	const vec3 lpvPos = vec3(0.0);
-	Indirect_lighting += doBlockLightLighting(lightColor, parameters.lightMap.x * 0.8, feetPlayerPos, lpvPos);
-
 	vec3 FinalColor = (Indirect_lighting + Direct_lighting*indoors) * Albedo;
 	
-    #ifndef VANILLA_LIKE_WATER
+    #ifndef Vanilla_like_water
 		if(isWater && abs(normal.y) > 0.1){
 			vec3 waterPos = (feetPlayerPos+cameraPosition).xzy;
 
@@ -323,12 +308,12 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 		#if defined FORWARD_BACKGROUND_REFLECTION
             BackgroundReflection = skyCloudsFromTex(mat3(gbufferModelViewInverse) * reflectedVector, colortex4).rgb / 1200.0;
         #endif
-        #if defined OVERWORLD_SHADER && SUN_SPECULAR_MULT > 0
-            SunReflection = SUN_SPECULAR_MULT * DirectLightColor * Shadows * GGX(normalize(normals), -normalize(viewPos), normalize(WsunVec2), roughness, f0) * (1.0-Reflections.a);
+        #ifdef WATER_SUN_SPECULAR
+            SunReflection = (DirectLightColor * Shadows) * GGX(normalize(normals), -normalize(viewPos), normalize(WsunVec2), roughness, f0) * (1.0-Reflections.a);
         #endif
 
 		Reflections_Final = mix(FinalColor, mix(BackgroundReflection*SSR_HIT_SKY_MASK, Reflections.rgb, Reflections.a), fresnel);
-		Reflections_Final += SunReflection*SSR_HIT_SKY_MASK;
+		Reflections_Final += SunReflection*indoors;
 
 		gbuffer_data_0.a = gbuffer_data_0.a + (1.0-gbuffer_data_0.a) * fresnel;
 	
@@ -346,15 +331,11 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 
     gbuffer_data_1 = vec4(Albedo, material);
 
-	vec4 GLASS_TINT_COLORS = vec4(Albedo, UnchangedAlpha);
-	
-	#ifdef BIOME_TINT_WATER
-		if (isWater) GLASS_TINT_COLORS.rgb = toLinear(parameters.tinting.rgb);
-	#endif
-
-	gbuffer_data_2 = vec4(0.0, encodeVec2(GLASS_TINT_COLORS.rg), encodeVec2(GLASS_TINT_COLORS.ba), 0.5);
-
-    gbuffer_data_3 = vec4(1, 1, encodeVec2(parameters.lightMap), 1);
+    gbuffer_data_2 = vec4(1, 1, encodeVec2(parameters.lightMap), 1);
+    gbuffer_data_3 = vec4(material, 0.0, 0.0, 1.0);
+    if (isWater) {
+        gbuffer_data_4 = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+    }
 
 }
 }

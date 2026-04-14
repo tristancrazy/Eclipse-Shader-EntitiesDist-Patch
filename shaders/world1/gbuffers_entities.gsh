@@ -3,6 +3,6 @@
 #define OVERWORLD_SHADER
 
 #define WORLD
-#define CUTOUT
+#define ENTITIES
 
-#include "/dimensions/all_solid.fsh"
+#include "/dimensions/all_solid.gsh"

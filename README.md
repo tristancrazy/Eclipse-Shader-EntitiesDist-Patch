@@ -8,6 +8,7 @@ Notable changes/additions compared to Bliss unstable:
  + Water wave simulation for the player
  + Shader Grass
  + Aurora & Rainbow
+ + Handheld shadows
  + Additional cirrus & cumulonimbus cloud layers (WIP)
  + Distant Horizons chunk fading
  + Moon Texture with phases
@@ -16,9 +17,8 @@ Notable changes/additions compared to Bliss unstable:
  + Better shader-side (hardcoded) emissives
  + Lightsource with shadows on the main end island
  + Better lightning strikes with clouds lighting up and shadows
- + Photonics, Colorwheel, Caelum (Arda Craft) support
- + 1.21.11 Chunk Fade In support
- + Emissive Ores and Trims
+ + Voxy, Colorwheel, Caelum (Arda Craft) support
+ + Emissive Ores
 
 Note: With default settings there is at least one guaranteed eclipse per ingame year.
 
@@ -73,9 +73,6 @@ Note: With default settings there is at least one guaranteed eclipse per ingame 
  - once the zip file finishes downloading, install it like a normal shader. you do NOT need to unzip/extract/decompress.
 
 # You want MOAR performance?
-> [!NOTE]  
-> My "[Iris Extension](https://modrinth.com/mod/iris-extension)" mod automatically does this when shader grass is disabled, there is no need to manually delete the files if you are using my mod!
-
- Delete the "gbuffers_terrain.gsh", "gbuffers_terrain.tcs" and "gbuffers_terrain.tes" files for all world folders in the shader.
+ Delete the gbuffers_terrain.tcs and gbuffers_terrain.tes files for all world folders in the shaders.
  This will make the shader grass setting non functional BUT will increase performance, especially with high vanilla render distances!
  (If you're wondering why, Iris does NOT allow me to disable these files once they're there. So even when Shader Grass is disabled these execute and harm performance!)

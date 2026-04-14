@@ -3,16 +3,13 @@
 
 
 #include "/lib/settings.glsl"
-#if defined IS_LPV_ENABLED || (WATER_INTERACTION == 2 && IRIS_VERSION < 11004) || defined SHADER_GRASS
+#if defined IS_LPV_ENABLED || WATER_INTERACTION == 2 || defined SHADER_GRASS
 	#extension GL_ARB_explicit_attrib_location: enable
 	#extension GL_ARB_shader_image_load_store: enable
 #endif
 
 #define RENDER_SHADOW
 
-uniform float alphaTestRef;
-uniform vec3 previousCameraPosition;
-// #define SAVE_VOXEL_STUFF
 
 /*
 !! DO NOT REMOVE !!
@@ -21,18 +18,9 @@ Read the terms of modification and sharing before changing something below pleas
 !! DO NOT REMOVE !!
 */
 
-out DATA {
-	vec2 texcoord;
-	vec3 color;	
-	vec3 playerpos;
-};
-
-in vec4 mc_midTexCoord;
-in vec4 mc_Entity;
-
 #define SHADOW_MAP_BIAS 0.5
 const float PI = 3.1415927;
-
+varying vec2 texcoord;
 uniform mat4 shadowProjectionInverse;
 uniform mat4 shadowProjection;
 uniform mat4 shadowModelViewInverse;
@@ -57,37 +45,24 @@ uniform vec3 shadowViewDir;
 uniform vec3 shadowCamera;
 uniform vec3 shadowLightVec;
 uniform float shadowMaxProj;
+attribute vec4 mc_midTexCoord;
+varying vec4 color;
+varying vec3 vertexPos;
 
+attribute vec4 mc_Entity;
 uniform int blockEntityId;
 uniform int entityId;
-
-//encoding by jodie
-float encodeVec2(vec2 a){
-    const vec2 constant1 = vec2( 1., 256.) / 65535.;
-    vec2 temp = floor( a * 255. );
-	return temp.x*constant1.x+temp.y*constant1.y;
-}
-float encodeVec2(float x,float y){
-    return encodeVec2(vec2(x,y));
-}
-vec3 viewToWorld(vec3 viewPos) {
-    vec4 pos;
-    pos.xyz = viewPos;
-    pos.w = 0.0;
-    pos = shadowModelViewInverse * pos;
-    return pos.xyz;
-}
 
 #include "/lib/Shadow_Params.glsl"
 #include "/lib/bokeh.glsl"
 #include "/lib/blocks.glsl"
 #include "/lib/entities.glsl"
 
-#if defined IS_LPV_ENABLED || (WATER_INTERACTION == 2  && IRIS_VERSION < 11004) || defined SHADER_GRASS
+#if defined IS_LPV_ENABLED || WATER_INTERACTION == 2 || defined SHADER_GRASS
 	#ifdef IRIS_FEATURE_BLOCK_EMISSION_ATTRIBUTE
-		in vec4 at_midBlock;
+		attribute vec4 at_midBlock;
 	#else
-		in vec3 at_midBlock;
+		attribute vec3 at_midBlock;
 	#endif
     uniform int currentRenderedItemId;
 	uniform int renderStage;
@@ -162,13 +137,22 @@ vec4 toClipSpace3(vec3 viewSpacePosition) {
 
     return vec4(projMAD(gl_ProjectionMatrix, viewSpacePosition),1.0);
 }
+vec3 viewToWorld(vec3 viewPos) {
+    vec4 pos;
+    pos.xyz = viewPos;
+    pos.w = 0.0;
+    pos = shadowModelViewInverse * pos;
+    return pos.xyz;
+}
+
+varying vec3 playerpos;
 
 // uniform int renderStage;
 
 // uniform mat4 gbufferModelViewInverse;
 void main() {
-	texcoord.xy = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
-	color = gl_Color.rgb;
+	texcoord.xy = gl_MultiTexCoord0.xy;
+	color = gl_Color;
 
 	vec3 position = mat3(gl_ModelViewMatrix) * vec3(gl_Vertex) + gl_ModelViewMatrix[3].xyz;
 	
@@ -227,7 +211,7 @@ void main() {
 	playerpos = mat3(shadowModelViewInverse) * position + shadowModelViewInverse[3].xyz;
 	// #endif
 
-	#if defined IS_LPV_ENABLED && defined MC_GL_ARB_shader_image_load_store || (WATER_INTERACTION == 2 && IRIS_VERSION < 11004) || defined SHADER_GRASS
+	#if defined IS_LPV_ENABLED && defined MC_GL_ARB_shader_image_load_store || WATER_INTERACTION == 2 || defined SHADER_GRASS
 		PopulateShadowVoxel(playerpos);
 	#endif
 
@@ -284,7 +268,7 @@ void main() {
 	if (entityId == ENTITY_LIGHTNING) LIGHTNING = 1.0;
 
 	#ifdef PLANET_CURVATURE
-		float curvature = length(worldpos.xz) / (16*8);
+		float curvature = length(worldpos) / (16*8);
 		worldpos.y -= curvature*curvature * CURVATURE_AMOUNT;
 	#endif
 

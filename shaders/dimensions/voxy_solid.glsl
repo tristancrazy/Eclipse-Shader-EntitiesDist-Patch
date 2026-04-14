@@ -6,17 +6,19 @@
 #undef PER_BIOME_ENVIRONMENT
 #undef TIMEOFDAYFOG
 #define SEASONS_VSH
+#define DH_SEASONS
 #include "/lib/climate_settings.glsl"
 
 layout (location = 0) out vec4 gbuffer_data_0;
 layout (location = 1) out vec4 gbuffer_data_1;
+layout (location = 2) out vec4 gbuffer_data_2;
 
-vec2 encodeNormal(vec3 n){
+vec4 encode (vec3 n, vec2 lightmaps){
 	n.xy = n.xy / dot(abs(n), vec3(1.0));
 	n.xy = n.z <= 0.0 ? (1.0 - abs(n.yx)) * sign(n.xy) : n.xy;
     vec2 encn = clamp(n.xy * 0.5 + 0.5,-1.0,1.0);
 	
-    return encn;
+    return vec4(encn,vec2(lightmaps.x,lightmaps.y));
 }
 
 //encoding by jodie
@@ -49,8 +51,24 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 	int blockID = int(parameters.customId);
 
 	#if defined Seasons
-		YearCycleColor(color, parameters.tinting.rgb, blockID == BLOCK_AIR_WAVING, true);
+		bool isSeasonLeaves =
+			blockID == BLOCK_AIR_WAVING;
+		bool isSeasonPlants =
+			blockID == BLOCK_GRASS
+			|| blockID == BLOCK_GROUND_WAVING
+			|| blockID == BLOCK_GROUND_WAVING_VERTICAL
+			|| blockID == BLOCK_GRASS_SHORT
+			|| blockID == BLOCK_GRASS_TALL_UPPER
+			|| blockID == BLOCK_GRASS_TALL_LOWER
+			|| blockID == BLOCK_SAPLING
+			|| blockID == BLOCK_VINE
+			|| blockID == BLOCK_VINE_OTHER
+			|| blockID == BLOCK_BAMBOO;
+
+		YearCycleColor(color, parameters.tinting.rgb, isSeasonLeaves, isSeasonPlants);
 	#endif
+
+	vec2 PackLightmaps = min(max(parameters.lightMap, 0.0) * 1.05, 1.0);
 
     Albedo.rgb = parameters.sampledColour.rgb * color;
 
@@ -60,7 +78,7 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 		/////// ----- SSS ON BLOCKS ----- ///////
 		// strong
 		if (
-			blockID == BLOCK_SSS_STRONG || blockID == BLOCK_SSS_STRONG3 || blockID == BLOCK_AIR_WAVING || blockID == BLOCK_SSS_STRONG_2
+			blockID == BLOCK_SSS_STRONG || blockID == BLOCK_AIR_WAVING
 		) {
 			SSSAMOUNT = 1.0;
 		}
@@ -72,8 +90,8 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 			SSSAMOUNT = 0.5;
 		}
 		else if (
-			blockID == BLOCK_SSS_WEAK || blockID == BLOCK_CACTUS || blockID == BLOCK_SSS_WEAK_2 ||
-			blockID == BLOCK_CELESTIUM || blockID == BLOCK_SNOW_LAYERS || blockID == BLOCK_CARPET ||
+			blockID == BLOCK_SSS_WEAK || blockID == BLOCK_SSS_WEAK_2 ||
+			blockID == BLOCK_GLOW_LICHEN || blockID == BLOCK_SNOW_LAYERS || blockID == BLOCK_CARPET ||
 			blockID == BLOCK_AMETHYST_BUD_MEDIUM || blockID == BLOCK_AMETHYST_BUD_LARGE || blockID == BLOCK_AMETHYST_CLUSTER ||
 			blockID == BLOCK_BAMBOO || blockID == BLOCK_SAPLING || blockID == BLOCK_VINE || blockID == BLOCK_VINE_OTHER
 		) {
@@ -98,28 +116,26 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 		// if(vNameTags > 0) EMISSIVE = 0.9;
 
 		// normal block lightsources
-		if(blockID >= 100 && blockID < 282) {
-			EMISSIVE = 0.5;
+		if(blockID >= 100 && blockID < 300) EMISSIVE = 0.5;
 
-			if(blockID == 266 || (blockID >= 276 && blockID <= 281)) EMISSIVE = 0.2; // sculk stuff
+		else if(blockID == 266 || blockID == 497) EMISSIVE = 0.2; // sculk stuff
 
-			else if(blockID == 195) EMISSIVE = 2.3; // glow lichen
+		else if(blockID == 195) EMISSIVE = 2.3; // glow lichen
 
-			else if(blockID == 185) EMISSIVE = 1.5; // crying obsidian
+		else if(blockID == 185) EMISSIVE = 1.5; // crying obsidian
 
-			else if(blockID == 105) EMISSIVE = 2.0; // brewing stand
-			
-			else if(blockID == 236) EMISSIVE = 1.0; // respawn anchor
+		else if(blockID == 105) EMISSIVE = 2.0; // brewing stand
+		
+		else if(blockID == 236) EMISSIVE = 1.0; // respawn anchor
 
-			else if(blockID == 101) EMISSIVE = 0.7; // large amethyst bud
+		else if(blockID == 101) EMISSIVE = 0.7; // large amethyst bud
 
-			else if(blockID == 103) EMISSIVE = 1.0; // amethyst cluster
+		else if(blockID == 103) EMISSIVE = 1.0; // amethyst cluster
 
-			else if(blockID == 244) EMISSIVE = 1.5; // soul fire
-		}
+		else if(blockID == 244) EMISSIVE = 1.5; // soul fire
 
 		#if EMISSIVE_ORES > 0
-			if(blockID == 502) EMISSIVE = EMISSIVE_ORES_STRENGTH;
+			else if(blockID == 502) EMISSIVE = EMISSIVE_ORES_STRENGTH;
 		#endif
 
 		#ifdef HARDCODED_EMISSIVES_APPROX
@@ -135,25 +151,12 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 
 	if (normal.z<=-0.9) normal.xy = vec2(-0.0000000000001);
 
-	vec2 lightmap = parameters.lightMap;
-
-    vec4 data1 = clamp(vec4(encodeNormal(normal), lightmap), 0.0, 1.0);
-
-	Albedo = clamp(Albedo, 0.0, 1.0);
+    vec4 data1 = clamp( encode(normal, PackLightmaps), 0.0, 1.0);
     
     gbuffer_data_0 = vec4(encodeVec2(Albedo.x,data1.x),	encodeVec2(Albedo.y,data1.y),	encodeVec2(Albedo.z,data1.z),	encodeVec2(data1.w,Albedo.w));
 
-	EMISSIVE = clamp(EMISSIVE, 0.0, 0.99);
     gbuffer_data_1 = vec4(0.0, 0.0, SSSAMOUNT, EMISSIVE);
 
-	vec4 otherData = clamp(vec4(normal * 0.5 + 0.5, 0.0), 0.0, 1.0);
-	gbuffer_data_1 = clamp(gbuffer_data_1, 0.0, 1.0);
-
-	gbuffer_data_1 = vec4(
-		encodeVec2(gbuffer_data_1.x, otherData.x),
-		encodeVec2(gbuffer_data_1.y, otherData.y),
-		encodeVec2(gbuffer_data_1.z, otherData.z),
-		encodeVec2(gbuffer_data_1.w, otherData.w)
-	);
+    gbuffer_data_2 = vec4(normal * 0.5 + 0.5, 0.0);
 
 }

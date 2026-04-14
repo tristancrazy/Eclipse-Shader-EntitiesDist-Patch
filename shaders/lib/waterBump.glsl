@@ -1,11 +1,3 @@
-const vec2 wave_size[3] = vec2[](
-	vec2(48.,12.),
-	vec2(12.,48.),
-	vec2(32.,32.)
-);
-
-const float radiance = 2.39996;
-
 float waterCaustics(vec3 worldPos, vec3 sunVec, float surfacePos) {
 
 	vec3 projectedPos = worldPos + (sunVec/abs(sunVec.y))*surfacePos;
@@ -13,11 +5,17 @@ float waterCaustics(vec3 worldPos, vec3 sunVec, float surfacePos) {
 
 	float movement = frameTimeCounter * 0.035 * WATER_WAVE_SPEED;
 
+	float radiance = 2.39996;
 	mat2 rotationMatrix  = mat2(vec2(cos(radiance),  -sin(radiance)),  vec2(sin(radiance),  cos(radiance)));
+
+ 	vec2 wave_size[3] = vec2[](
+		vec2(48.,12.),
+		vec2(12.,48.),
+		vec2(32.,32.)
+	);
 
 	float largeWaves = texture(noisetex, pos / 600.0 ).b;
 	float largeWavesCurved = pow(1.0-pow(1.0-largeWaves,2.5),4.5);
-	largeWavesCurved = mix(1.0-largeWavesCurved, largeWavesCurved, PATCHY_WAVE_BLEND);
 
 	float heightSum = 0.0;
 	for (int i = 0; i < 3; i++){
@@ -34,7 +32,15 @@ float getWaterHeightmap(vec2 posxz, in float largeWaves, in float largeWavesCurv
 
 	float movement = frameTimeCounter * 0.035 * WATER_WAVE_SPEED;
 
+	float radiance = 2.39996;
 	mat2 rotationMatrix  = mat2(vec2(cos(radiance),  -sin(radiance)),  vec2(sin(radiance),  cos(radiance)));
+
+ 	vec2 wave_size[3] = vec2[](
+		vec2(48.,12.),
+		vec2(12.,48.),
+		vec2(32.,32.)
+	);
+
 
 	float heightSum = 0.0;
 	for (int i = 0; i < 3; i++){
@@ -50,12 +56,11 @@ vec3 getWaveNormal(vec3 waterPos, vec3 playerpos){
 	
 	float largeWaves = texture(noisetex, waterPos.xy / 600.0 ).b;
 	float largeWavesCurved = pow(1.0-pow(1.0-largeWaves,2.5),4.5);
-	largeWavesCurved = mix(1.0-largeWavesCurved, largeWavesCurved, PATCHY_WAVE_BLEND);
 	
 	#ifdef HYPER_DETAILED_WAVES
 		float deltaPos = 0.025;
 	#else
-		float deltaPos = mix(WAVES_A_RADIUS, WAVES_B_RADIUS, largeWavesCurved);
+		float deltaPos = mix(1.0/WAVE_DETAIL, 0.15, largeWavesCurved);
 		// reduce high frequency detail as distance increases. reduces noise on waves. why have more details than pixels?
 		float range = min(length(playerpos) / (16.0*24.0), 3.0);
 		deltaPos += range;

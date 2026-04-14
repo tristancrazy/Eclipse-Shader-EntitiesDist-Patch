@@ -82,6 +82,8 @@ uniform float far;
 uniform sampler2D specular;
 uniform sampler2D gtexture;
 uniform sampler2D colortex1;//albedo(rgb),material(alpha) RGBA16
+uniform sampler2D colortex18;
+uniform sampler2D colortex19;
 uniform float frameTimeCounter;
 uniform int frameCounter;
 uniform mat4 gbufferProjectionInverse;
@@ -117,6 +119,7 @@ uniform vec3 relativeEyePosition;
 uniform sampler2D vxDepthTexOpaque;
 uniform sampler2D vxDepthTexTrans;
 uniform mat4 vxProj;
+uniform mat4 vxProjInv;
 uniform float dhVoxyNearPlane;
 uniform float dhVoxyFarPlane;
 #endif
@@ -242,13 +245,32 @@ bool voxyDepthIsValid(float depth) {
 	return depth > 0.0 && depth < 1.0;
 }
 
+bool voxySceneWaterAtFragment() {
+	return texture2D(colortex18, gl_FragCoord.xy * texelSize).r > 0.99;
+}
+
+vec4 voxyNearestWaterData() {
+	return texture2D(colortex19, gl_FragCoord.xy * texelSize);
+}
+
+vec3 voxyViewPositionFromDepth(float depth) {
+	vec4 iProjDiag = vec4(vxProjInv[0].x, vxProjInv[1].y, vxProjInv[2].zw);
+	vec3 clipPos = vec3(gl_FragCoord.xy * texelSize, depth) * 2.0 - 1.0;
+	vec4 viewPos = iProjDiag * clipPos.xyzz + vxProjInv[3];
+	return viewPos.xyz / viewPos.w;
+}
+
+float voxyWorldYFromViewPosition(vec3 viewSpacePosition) {
+	return (mat3(gbufferModelViewInverse) * viewSpacePosition).y + cameraPosition.y;
+}
+
 float voxyNearestLinearDepth() {
 	vec2 screenUv = gl_FragCoord.xy * texelSize;
 	float opaqueDepth = texture2D(vxDepthTexOpaque, screenUv).r;
 	float transDepth = texture2D(vxDepthTexTrans, screenUv).r;
 
 	bool hasOpaqueDepth = voxyDepthIsValid(opaqueDepth);
-	bool hasTransDepth = voxyDepthIsValid(transDepth);
+	bool hasTransDepth = voxyDepthIsValid(transDepth) && !voxySceneWaterAtFragment();
 	if (!hasOpaqueDepth && !hasTransDepth) return -1.0;
 
 	float nearestLinearDepth = 1e30;
@@ -264,6 +286,36 @@ bool voxyOccludesEntityFragment(vec3 viewSpacePosition) {
 	const float voxyDepthBiasBlocks = 0.35;
 	float entityLinearDepth = voxyLinearizeDepth(entityDepth);
 	return voxyLinearDepth + voxyDepthBiasBlocks < entityLinearDepth;
+}
+
+bool voxyEntityFragmentSubmerged(vec3 viewSpacePosition, out float waterDepth) {
+	waterDepth = 0.0;
+
+	vec4 waterData = voxyNearestWaterData();
+	if (waterData.a <= 0.5) return false;
+
+	float waterSurfaceDepth = waterData.r;
+	if (!voxyDepthIsValid(waterSurfaceDepth)) return false;
+
+	float entityDepth = toClipSpace3_Voxy(viewSpacePosition).z;
+	if (!voxyDepthIsValid(entityDepth)) return false;
+
+	float waterLinearDepth = voxyLinearizeDepth(waterSurfaceDepth);
+	float entityLinearDepth = voxyLinearizeDepth(entityDepth);
+	const float voxyWaterDepthBiasBlocks = 0.15;
+	if (entityLinearDepth <= waterLinearDepth + voxyWaterDepthBiasBlocks) return false;
+
+	float opaqueDepth = texture2D(vxDepthTexOpaque, gl_FragCoord.xy * texelSize).r;
+	if (voxyDepthIsValid(opaqueDepth)) {
+		float opaqueLinearDepth = voxyLinearizeDepth(opaqueDepth);
+		if (entityLinearDepth >= opaqueLinearDepth) return false;
+	}
+
+	float fragmentWorldY = voxyWorldYFromViewPosition(viewSpacePosition);
+	float waterSurfaceWorldY = voxyWorldYFromViewPosition(voxyViewPositionFromDepth(waterSurfaceDepth));
+	waterDepth = waterSurfaceWorldY - fragmentWorldY;
+	if (waterDepth <= 0.05) return false;
+	return true;
 }
 #endif
 
@@ -1018,6 +1070,14 @@ void main() {
 	// hit glow effect...
 	#if defined ENTITIES && !defined COLORWHEEL
 		Albedo.rgb = mix(Albedo.rgb, entityColor.rgb, pow(entityColor.a, 0.8));
+	#endif
+
+	#if defined VOXY && (defined ENTITIES || defined BLOCKENTITIES) && !defined HAND
+		float voxySubmergedDepth = 0.0;
+		if (voxyEntityFragmentSubmerged(fragpos, voxySubmergedDepth)) {
+			vec3 voxyWaterTransmittance = exp(-vec3(Water_Absorb_R, Water_Absorb_G, Water_Absorb_B) * min(voxySubmergedDepth, 12.0));
+			Albedo.rgb *= mix(vec3(1.0), voxyWaterTransmittance, 0.8);
+		}
 	#endif
 
 	#ifdef COLORWHEEL

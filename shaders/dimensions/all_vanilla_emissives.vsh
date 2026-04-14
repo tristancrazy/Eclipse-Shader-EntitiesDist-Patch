@@ -8,15 +8,16 @@ Read the terms of modification and sharing before changing something below pleas
 !! DO NOT REMOVE !!
 */
 
-out DATA {
-    vec4 color;
-    vec2 texcoord;
-};
+varying vec4 color;
+varying vec2 texcoord;
+
+varying vec4 tangent;
+varying vec4 normalMat;
+attribute vec4 at_tangent;
+
 
 uniform vec2 texelSize;
 uniform int framemod8;
-uniform mat4 gbufferModelView;
-uniform mat4 gbufferModelViewInverse;
 #include "/lib/TAA_jitter.glsl"
 
 
@@ -39,21 +40,15 @@ void main() {
 
 	texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).st;
 
-	vec3 position = mat3(gl_ModelViewMatrix) * vec3(gl_Vertex) + gl_ModelViewMatrix[3].xyz;
-
-	vec3 worldpos = mat3(gbufferModelViewInverse) * position + gbufferModelViewInverse[3].xyz;
-
-	#if defined PLANET_CURVATURE
-		float curvature = length(worldpos.xz) / (16.0*8.0);
-		worldpos.y -= curvature*curvature * CURVATURE_AMOUNT;
-	#endif
-
-	position = mat3(gbufferModelView) * worldpos + gbufferModelView[3].xyz;
-
-	gl_Position = toClipSpace3(position);
+	gl_Position = ftransform();
 
 	#ifdef BEACON_BEAM
 		if(gl_Color.a < 1.0) gl_Position = vec4(10,10,10,0);
+	#endif
+
+	#ifdef ENCHANT_GLINT
+		tangent = vec4(normalize(gl_NormalMatrix * at_tangent.rgb), at_tangent.w);
+		normalMat = vec4(normalize(gl_NormalMatrix * gl_Normal), 1.0);
 	#endif
 
 	#ifdef TAA_UPSCALING

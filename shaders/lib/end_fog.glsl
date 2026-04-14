@@ -78,7 +78,7 @@ vec3 LightSourcePosition(vec3 worldPos, vec3 cameraPos, float vortexBounds){
     lightningPos += fract(cameraPos/cellSize)*cellSize - cellSize*0.5;
 
 	// make the position offset to random places (RNG.xyz from non-clearing buffer).
-	vec3 randomOffset = (texelFetch(colortex4,ivec2(2,1),0).xyz / 150.0) * 2.0 - 1.0;
+	vec3 randomOffset = (texelFetch2D(colortex4,ivec2(2,1),0).xyz / 150.0) * 2.0 - 1.0;
 	lightningPos -= randomOffset * 2.5;
 	
 	#ifdef THE_ORB
@@ -102,7 +102,7 @@ float densityAtPosFog(in vec3 pos){
 	f = (f*f) * (3.-2.*f);
 	vec2 uv =  p.xz + f.xz + p.y * vec2(0.0,193.0);
 	vec2 coord =  uv / 512.0;
-	vec2 xy = texture(noisetex, coord).yx;
+	vec2 xy = texture2D(noisetex, coord).yx;
 	return mix(xy.r,xy.g, f.y);
 }
 
@@ -132,10 +132,10 @@ void VolumeBounds(inout float Volume, vec3 Origin){
     float thickness = 25.0 * radius;
     float Torus =  (thickness - clamp( pow( length( vec2(length(Origin.xz) - radius, Origin2.y) ),2.0) - radius, 0.0, thickness) ) / thickness;
 	
-	// Origin2.xz *= 0.5;
-	// Origin2.y -= 100;
+	Origin2.xz *= 0.5;
+	Origin2.y -= 100;
 
-	// float orb = clamp((1.0 - length(Origin2) / 15.0) * 1.0,0.0,1.0);
+	float orb = clamp((1.0 - length(Origin2) / 15.0) * 1.0,0.0,1.0);
     Volume = max(Volume - Bounds - Torus, 0);
 	
 }
@@ -145,7 +145,7 @@ float fogShape(in vec3 pos){
 
 	float vortexBounds = clamp(vortexBoundRange - length(pos), 0.0,1.0);
 	vec3 samplePos = pos*vec3(1.0,1.0/48.0,1.0);
-	// float fogYstart = -60;
+	float fogYstart = -60;
 
 	// this is below down where you fall to your death.
 	float voidZone = max(exp2(-1.0 * sqrt(max(pos.y - -60,0.0))) ,0.0) ;
@@ -234,8 +234,6 @@ vec4 GetVolumetricFog(
 	float verticalFactor = abs(normalize(dVWorld).y);
 	verticalFactor = pow(verticalFactor, 2.0);
 
-	float rayLength = length(dVWorld);
-
 	#if defined DISTANT_HORIZONS || defined VOXY
 		int SAMPLECOUNT = 19;
 		float expFactor = 33.0;
@@ -248,7 +246,7 @@ vec4 GetVolumetricFog(
 
 	vec3 progressW = vec3(0.0);
 
-	float maxLength = min(rayLength, maxDist)/rayLength;
+	float maxLength = min(length(dVWorld), maxDist)/length(dVWorld);
 	
 	dVWorld *= maxLength;
 
@@ -266,16 +264,15 @@ vec4 GetVolumetricFog(
 
 	float skyPhase = (0.5 + pow(clamp(normalize(wpos).y*0.5+0.5,0.0,1.0),4.0)*5.0) * 0.1;
 
-	// vec3 hazeColor = normalize(gl_Fog.color.rgb + 1e-6) * 0.1;
+	vec3 hazeColor = normalize(gl_Fog.color.rgb + 1e-6) * 0.1;
     
-	float lightningflash = texelFetch(colortex4,ivec2(1,1),0).x/150.0;
+	float lightningflash = texelFetch2D(colortex4,ivec2(1,1),0).x/150.0;
 	
 	for (int i = 0; i < SAMPLECOUNT; i++) {
 		float d = (pow(expFactor, float(i+dither)/float(SAMPLECOUNT))/expFactor - 1.0/expFactor)/(1-1.0/expFactor);
 		float dd = pow(expFactor, float(i+dither2)/float(SAMPLECOUNT)) * log(expFactor) / float(SAMPLECOUNT)/(expFactor-1.0);
 
-		vec3 progressP = gbufferModelViewInverse[3].xyz + d*dVWorld;
-		vec3 progressW = progressP + cameraPosition;
+		vec3 progressW = gbufferModelViewInverse[3].xyz+cameraPosition + d*dVWorld;
 		
 
 		//------ END STORM EFFECT
@@ -292,7 +289,7 @@ vec4 GetVolumetricFog(
 
 			float volumeDensity = fogShape(progressW);
 			
-			float clearArea =  1.0-min(max(1.0 - length(progressP) / 100,0.0),1.0);
+			float clearArea =  1.0-min(max(1.0 - length(progressW - cameraPosition) / 100,0.0),1.0);
 			float stormDensity = min(volumeDensity, clearArea*clearArea * END_STORM_DENSTIY);
 			
 			#ifdef THE_ORB
@@ -314,6 +311,23 @@ vec4 GetVolumetricFog(
 			float hazeDensity = 0.001 * END_HAZE_DENSTIY;
 			vec3 hazeLighting = vec3(0.37,0.32,0.75) * skyPhase * 0.5;
 			color += (hazeLighting - hazeLighting*exp(-hazeDensity*dd*dL)) * absorbance;
+
+
+		#if defined FLASHLIGHT && defined FLASHLIGHT_FOG_ILLUMINATION
+			vec3 shiftedViewPos = mat3(gbufferModelView)*(progressW-cameraPosition) + vec3(-0.25, 0.2, 0.0);
+			vec3 shiftedPlayerPos = mat3(gbufferModelViewInverse) * shiftedViewPos;
+			vec2 scaledViewPos = shiftedViewPos.xy / max(-shiftedViewPos.z - 0.5, 1e-7);
+			float linearDistance = length(shiftedPlayerPos);
+			float shiftedLinearDistance = length(scaledViewPos);
+
+			float lightFalloff = 1.0 - clamp(1.0-linearDistance/FLASHLIGHT_RANGE, -0.999,1.0);
+			lightFalloff = max(exp(-10.0 * FLASHLIGHT_BRIGHTNESS_FALLOFF_MULT * lightFalloff),0.0);
+			float projectedCircle = clamp(1.0 - shiftedLinearDistance*FLASHLIGHT_SIZE,0.0,1.0);
+
+			vec3 flashlightGlow = vec3(FLASHLIGHT_R,FLASHLIGHT_G,FLASHLIGHT_B) * lightFalloff * projectedCircle * 0.5;
+
+			color += (flashlightGlow - flashlightGlow * exp(-max(stormDensity,0.005)*dd*dL)) * absorbance;
+		#endif
 	}
 	return vec4(color, absorbance);
 }

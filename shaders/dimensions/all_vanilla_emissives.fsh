@@ -1,13 +1,7 @@
 #include "/lib/settings.glsl"
 
-#ifdef ENCHANT_GLINT
-    #include "/lib/SSBOs.glsl"
-#endif
-
-in DATA {
-    vec4 color;
-    vec2 texcoord;
-};
+varying vec4 color;
+varying vec2 texcoord;
 
 uniform sampler2D gtexture;
 
@@ -27,7 +21,7 @@ vec3 toLinear(vec3 sRGB){
 
 void main() {
 
-	vec4 Albedo = texture(gtexture, texcoord);
+	vec4 Albedo = texture2D(gtexture, texcoord);
 
     #ifndef COLORWHEEL
 	    Albedo.rgb = toLinear(Albedo.rgb * color.rgb);
@@ -73,7 +67,7 @@ void main() {
             vec3 GlintColor = vec3(0.0);
             Albedo.a = 0.0;
         #else
-            vec3 GlintColor = Albedo.rgb * 0.65 * ENCHANT_GLINT_BRIGHTNESS * avgBrightnessSSBO * color.a;
+            vec3 GlintColor = Albedo.rgb * 0.2 * Emissive_Brightness * ENCHANT_GLINT_BRIGHTNESS;
         #endif
 
 	    gl_FragData[0] = vec4(GlintColor*0.1, 0.000001);

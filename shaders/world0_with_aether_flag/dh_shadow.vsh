@@ -10,7 +10,7 @@ Read the terms of modification and sharing before changing something below pleas
 
 #define SHADOW_MAP_BIAS 0.5
 const float PI = 3.1415927;
-out vec2 texcoord;
+varying vec2 texcoord;
 uniform mat4 shadowProjectionInverse;
 uniform mat4 shadowProjection;
 uniform mat4 shadowModelViewInverse;
@@ -18,7 +18,7 @@ uniform mat4 shadowModelView;
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
 
-out flat int water;
+flat varying int water;
 
 
 
@@ -42,7 +42,7 @@ vec4 toClipSpace3(vec3 viewSpacePosition) {
 
 
 
-out float overdrawCull;
+varying float overdrawCull;
 // uniform int renderStage;
 
 void main() {

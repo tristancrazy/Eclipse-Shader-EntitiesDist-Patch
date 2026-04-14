@@ -20,15 +20,9 @@ Read the terms of modification and sharing before changing something below pleas
 !! DO NOT REMOVE !!
 */
 
-out vec2 texcoord;
-out vec4 color;
-
-in vec4 mc_midTexCoord;
-in vec4 mc_Entity;
-
 #define SHADOW_MAP_BIAS 0.5
 const float PI = 3.1415927;
-
+varying vec2 texcoord;
 uniform mat4 shadowProjectionInverse;
 uniform mat4 shadowProjection;
 uniform mat4 shadowModelViewInverse;
@@ -53,7 +47,11 @@ uniform vec3 shadowViewDir;
 uniform vec3 shadowCamera;
 uniform vec3 shadowLightVec;
 uniform float shadowMaxProj;
+attribute vec4 mc_midTexCoord;
+varying vec4 color;
+varying vec3 vertexPos;
 
+attribute vec4 mc_Entity;
 uniform int blockEntityId;
 uniform int entityId;
 
@@ -64,9 +62,9 @@ uniform int entityId;
 
 #if defined IS_LPV_ENABLED
 	#ifdef IRIS_FEATURE_BLOCK_EMISSION_ATTRIBUTE
-		in vec4 at_midBlock;
+		attribute vec4 at_midBlock;
 	#else
-		in vec3 at_midBlock;
+		attribute vec3 at_midBlock;
 	#endif
     uniform int currentRenderedItemId;
 	uniform int renderStage;
@@ -149,6 +147,8 @@ vec3 viewToWorld(vec3 viewPos) {
     return pos.xyz;
 }
 
+varying vec3 playerpos;
+
 // uniform int renderStage;
 
 // uniform mat4 gbufferModelViewInverse;
@@ -210,7 +210,7 @@ void main() {
 	// #endif
 
 	// #if defined IS_LPV_ENABLED || defined WAVY_PLANTS  || !defined PLANET_CURVATURE
-	vec3 playerpos = mat3(shadowModelViewInverse) * position + shadowModelViewInverse[3].xyz;
+	playerpos = mat3(shadowModelViewInverse) * position + shadowModelViewInverse[3].xyz;
 	// #endif
 
 	#if defined IS_LPV_ENABLED && defined MC_GL_ARB_shader_image_load_store
@@ -270,7 +270,7 @@ void main() {
 	if (entityId == ENTITY_LIGHTNING) LIGHTNING = 1.0;
 
 	#ifdef PLANET_CURVATURE
-		float curvature = length(worldpos.xz) / (16*8);
+		float curvature = length(worldpos) / (16*8);
 		worldpos.y -= curvature*curvature * CURVATURE_AMOUNT;
 	#endif
 

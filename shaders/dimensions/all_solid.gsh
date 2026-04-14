@@ -96,14 +96,6 @@ uniform vec3 relativeEyePosition;
 const float PI48 = 150.796447372*WAVY_SPEED;
 float pi2wt = PI48*frameTimeCounter;
 
-#if defined VIVECRAFT
-	uniform bool vivecraftIsVR;
-	uniform vec3 vivecraftRelativeMainHandPos;
-	uniform vec3 vivecraftRelativeOffHandPos;
-	uniform mat4 vivecraftRelativeMainHandRot;
-	uniform mat4 vivecraftRelativeOffHandRot;
-#endif
-
 uniform sampler2D noisetex;
 
 vec3 viewToWorld(vec3 viewPosition) {
@@ -149,7 +141,7 @@ void main() {
 
         #ifdef SHADER_GRASS
             #if defined PLANET_CURVATURE && !defined HAND
-                float curvature = length(vertex.xz) / (16.0*8.0);
+                float curvature = length(vertex.xyz) / (16.0*8.0);
                 vertex.y -= curvature*curvature * CURVATURE_AMOUNT;
             #endif
 
@@ -229,7 +221,7 @@ void main() {
         float vertexDist = length(vertex);
 
         #ifdef PLANET_CURVATURE
-            float curvature = length(vertex.xz) / (16.0*8.0);
+            float curvature = vertexDist / (16.0*8.0);
             vertex.y -= curvature*curvature * CURVATURE_AMOUNT;
         #endif
 
@@ -285,52 +277,31 @@ void main() {
 
             vec2 edgeBlend = eastHeightMult*vec2(-0.17,0.0) + westHeightMult*vec2(0.17,0.0) + southHeightMult*vec2(0.0,-0.17) + northHeightMult*vec2(0.0,0.17);
 
-            vec3 worldUp = vec3(0.0, 1.0, 0.0);
 
-            vec3 offsetPos = vertex + worldUp + relativeEyePosition;
+            vec3 offsetPos = vertex+vec3(0.0, 1.0, 0.0)+relativeEyePosition;
             float playerDist = smoothstep(0.5, 0.05, length(offsetPos.xz)) * smoothstep(1.0, 0.2, abs(offsetPos.y));
-            vec2 dir2 = normalize(vertex.xz + relativeEyePosition.xz);
+            vec2 dir2 = normalize(vertex.xz+relativeEyePosition.xz);
 
-            #ifdef VIVECRAFT
-                float mainHandDist = 0.0;
-                float offHandDist = 0.0;
-                
-                if(vivecraftIsVR) {
-                    offsetPos = vertex + vivecraftRelativeMainHandPos;
-                    mainHandDist = smoothstep(0.125, 0.025, length(offsetPos));
+            vec2 Wvertex = vertex.xz+cameraPositionFract.xz+mod(vec2(cameraPositionInt.xz), vec2(20.0));
 
-                    offsetPos = vertex + vivecraftRelativeOffHandPos;
-                    offHandDist = smoothstep(0.125, 0.025, length(offsetPos));
-                }
-            #endif
-
-            vec2 Wvertex = vertex.xz + cameraPositionFract.xz + mod(vec2(cameraPositionInt.xz), vec2(20.0));
-
-            vec2 randomDir = 2.0 * (texture(noisetex, 0.75*Wvertex).xy + texture(noisetex, 0.35*Wvertex.yx).xy) - 1.0;
+            vec2 randomDir = 2.0*(texture2D(noisetex, 0.75*Wvertex).xy+texture2D(noisetex, 0.35*Wvertex.yx).xy)-1.0;
             // vertex.xz -= 0.05*randomDir;
+
 
             vec3 dir = normalize(vertex);
             vec3 originalVertex = vertex;
+
+            vec3 worldUp = vec3(0.0, 1.0, 0.0);
 
             vec3 right = GRASS_BASE_THICKNESS*normalize(cross(worldUp, dir));
 
             worldUp *= heightMult;
 
-            originalVertex -= right*0.125*GRASS_BASE_THICKNESS;
+            originalVertex -= right*0.0625*GRASS_BASE_THICKNESS;
 
-            #if GRASS_QUALITY == 2
-                vec3 verticies[21];
-                float grassHeights[21];
-                vec3 GrassNormal[7];
-            #elif GRASS_QUALITY == 1
-                vec3 verticies[15];
-                float grassHeights[15];
-                vec3 GrassNormal[5];
-            #else
-                vec3 verticies[9];
-                float grassHeights[9];
-                vec3 GrassNormal[3];
-            #endif
+            vec3 verticies[21];
+            float grassHeights[21];
+            vec3 GrassNormal[7];
 
             for (j = 0; j < triangle_count; j++) {
 
@@ -372,13 +343,6 @@ void main() {
                     float grassCurvature = smoothstep(0.0, 1.0, grassHeights[3*j+i]);
 
                     vertex.xz += 0.7*playerDist*vec2(dir2)*grassCurvature;
-
-                    #ifdef VIVECRAFT
-                        if(vivecraftIsVR) {
-                            vertex.xz += mainHandDist*vec2(dir2)*grassCurvature;
-                            vertex.xz += offHandDist*vec2(dir2)*grassCurvature;
-                        }
-                    #endif
 
                     vertex.xz += grassCurvature*totalRandBend;
 
