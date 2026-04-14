@@ -58,6 +58,7 @@ uniform sampler2D depthtex0;
 
 #ifdef VOXY
 	uniform sampler2D vxDepthTexOpaque;
+	uniform sampler2D vxDepthTexTrans;
 	#define dhVoxyDepthTex1 vxDepthTexOpaque
 #endif
 
@@ -244,13 +245,30 @@ float voxyLinearizeDepth(float depth) {
 	return (dhVoxyNearPlane * dhVoxyFarPlane) / (depth * (dhVoxyNearPlane - dhVoxyFarPlane) + dhVoxyFarPlane);
 }
 
-bool voxyOccludesEntityFragment(vec3 viewSpacePosition) {
-	float voxyDepth = texture2D(vxDepthTexOpaque, gl_FragCoord.xy * texelSize).r;
-	if (voxyDepth <= 0.0 || voxyDepth >= 1.0) return false;
+bool voxyDepthIsValid(float depth) {
+	return depth > 0.0 && depth < 1.0;
+}
 
+float voxyNearestLinearDepth() {
+	vec2 screenUv = gl_FragCoord.xy * texelSize;
+	float opaqueDepth = texture2D(vxDepthTexOpaque, screenUv).r;
+	float transDepth = texture2D(vxDepthTexTrans, screenUv).r;
+
+	bool hasOpaqueDepth = voxyDepthIsValid(opaqueDepth);
+	bool hasTransDepth = voxyDepthIsValid(transDepth);
+	if (!hasOpaqueDepth && !hasTransDepth) return -1.0;
+
+	float nearestLinearDepth = 1e30;
+	if (hasOpaqueDepth) nearestLinearDepth = voxyLinearizeDepth(opaqueDepth);
+	if (hasTransDepth) nearestLinearDepth = min(nearestLinearDepth, voxyLinearizeDepth(transDepth));
+	return nearestLinearDepth;
+}
+
+bool voxyOccludesEntityFragment(vec3 viewSpacePosition) {
+	float voxyLinearDepth = voxyNearestLinearDepth();
+	if (voxyLinearDepth < 0.0) return false;
 	float entityDepth = toClipSpace3_DH(viewSpacePosition, true).z;
 	const float voxyDepthBiasBlocks = 0.35;
-	float voxyLinearDepth = voxyLinearizeDepth(voxyDepth);
 	float entityLinearDepth = voxyLinearizeDepth(entityDepth);
 	return voxyLinearDepth + voxyDepthBiasBlocks < entityLinearDepth;
 }
